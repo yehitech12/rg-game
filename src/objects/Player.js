@@ -14,6 +14,11 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
         // Infinite map, so no bounds
         this.setCollideWorldBounds(false);
         this.body.setBounce(0);
+        this.body.setFriction(1, 1);
+        this.body.setMaxVelocity(400, 400); // 限制最大速度防止穿牆
+
+        // Set depth to ensure Susanoo appears behind
+        this.setDepth(10);
 
         this.speed = 250;
         this.maxHealth = 100;
@@ -50,14 +55,25 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
             // the delta with world.timeScale. 
             this.scene.physics.velocityFromRotation(angle, currentSpeed, this.body.velocity);
 
-            // Flip sprite based on movement direction
+            // Flip sprite based on movement direction (reversed)
             if (this.body.velocity.x < 0) {
-                this.setFlipX(true);
-            } else if (this.body.velocity.x > 0) {
                 this.setFlipX(false);
+            } else if (this.body.velocity.x > 0) {
+                this.setFlipX(true);
+            }
+
+            // Play walk animation if moving
+            if (this.anims && !this.anims.isPlaying) {
+                this.play('player_walk');
             }
         } else {
             this.setVelocity(0);
+
+            // Stop animation and show first frame when idle
+            if (this.anims && this.anims.isPlaying) {
+                this.stop();
+                this.setTexture('player_walk_1_clean');
+            }
         }
     }
 }

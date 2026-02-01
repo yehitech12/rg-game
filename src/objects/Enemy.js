@@ -12,6 +12,13 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.burnStacks = 0;
         this.nextBurnTick = 0;
         this.burnResetTime = 0;
+
+        // Stun & Slow Properties
+        this.isStunned = false;
+        this.stunUntil = 0;
+        this.slowFactor = 1.0;
+        this.slowUntil = 0;
+        this.stunGraphics = scene.add.graphics();
     }
 
     setTarget(target) {
@@ -35,11 +42,16 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.attackCooldown = config.attackCooldown || 3000;
         this.nextAttack = 0;
         this.configColor = config.color;
+        this.isMegaBoss = config.isMegaBoss || false;
 
         // Reset Debuffs
         this.burnStacks = 0;
         this.nextBurnTick = 0;
         this.burnResetTime = 0;
+
+        // Reset Stun
+        this.isStunned = false;
+        this.stunUntil = 0;
 
         this.setTexture(config.sprite);
         this.setScale(config.scale || 1);
@@ -60,7 +72,26 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
             this.clearTint();
         }
 
-        this.body.setSize(this.width * 0.8, this.height * 0.8);
+        // Play slime or skeleton animation if applicable
+        if (config.sprite === 'slime' && this.scene.anims.exists('slime_move')) {
+            this.play('slime_move');
+        } else if (config.sprite === 'skeleton' && this.scene.anims.exists('skeleton_move')) {
+            this.play('skeleton_move');
+        } else if (config.sprite === 'knight' && this.scene.anims.exists('knight_move')) {
+            this.play('knight_move');
+        } else if (config.sprite === 'rock' && this.scene.anims.exists('rock_move')) {
+            this.play('rock_move');
+        } else if (config.sprite === 'boss_slime' && this.scene.anims.exists('boss_slime_move')) {
+            this.play('boss_slime_move');
+        } else {
+            this.stop();
+        }
+
+        // 縮小 Hitbox 並精確置中，解決「被撞位置不對」的體感問題
+        const hbWidth = this.width * 0.7;
+        const hbHeight = this.height * 0.7;
+        this.body.setSize(hbWidth, hbHeight);
+        this.body.setOffset((this.width - hbWidth) / 2, (this.height - hbHeight) / 2);
 
         // Boss health tracking
         if (this.isBoss) {
@@ -100,16 +131,80 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
         if (this.isBoss) {
             this.scene.events.emit('bossDied');
         }
+        this.stunGraphics.clear();
+        this.isDying = true; // 標記正在死亡
+        this.body.setVelocity(0); // 立即停止移動
+
+        // Play death animation if slime or skeleton
+        if (this.texture.key.includes('slime') && this.scene.anims.exists('slime_die')) {
+            this.play('slime_die');
+            this.once('animationcomplete', () => {
+                this.finishDeath();
+            });
+        } else if (this.texture.key.includes('skeleton') && this.scene.anims.exists('skeleton_die')) {
+            this.play('skeleton_die');
+            this.once('animationcomplete', () => {
+                this.finishDeath();
+            });
+        } else if (this.texture.key.includes('knight') && this.scene.anims.exists('knight_die')) {
+            this.play('knight_die');
+            this.body.setVelocity(0);
+            this.once('animationcomplete', () => {
+                this.finishDeath();
+            });
+        } else if (this.texture.key.includes('rock') && this.scene.anims.exists('rock_die')) {
+            this.play('rock_die');
+            this.body.setVelocity(0);
+            this.once('animationcomplete', () => {
+                this.finishDeath();
+            });
+        } else if (this.texture.key.includes('boss_slime') && this.scene.anims.exists('boss_slime_die')) {
+            this.play('boss_slime_die');
+            this.body.setVelocity(0);
+            this.once('animationcomplete', () => {
+                this.finishDeath();
+            });
+        } else {
+            this.finishDeath();
+        }
+    }
+
+    finishDeath() {
+        this.isDying = false;
         this.setActive(false);
         this.setVisible(false);
         if (this.scene.enemyDied) {
-            this.scene.enemyDied(this.x, this.y, this.xpValue);
+            this.scene.enemyDied(this.x, this.y, this.xpValue, this.isBoss, this.isMegaBoss);
         }
     }
 
     preUpdate(time, delta) {
         super.preUpdate(time, delta);
-        if (!this.active || !this.target) return;
+        if (!this.active || !this.target || this.isDying) {
+            if (this.isDying) this.body.setVelocity(0); // 確保死亡時速度為 0
+            return;
+        }
+
+        // Stun Logic
+        if (this.isStunned) {
+            if (time > this.stunUntil) {
+                this.isStunned = false;
+                this.stunGraphics.clear();
+                this.clearTint();
+                if (this.isElite) this.setTint(0xffff00);
+            } else {
+                this.body.setVelocity(0);
+                this.updateStunGraphics(time);
+                return;
+            }
+        } else {
+            this.stunGraphics.clear();
+        }
+
+        // Apply movement with speed multipliers (stun, slow, etc.)
+        let currentSpeed = this.speed;
+        if (this.isStunned) currentSpeed = 0;
+        else if (time < this.slowUntil) currentSpeed *= this.slowFactor;
 
         // Boss Attack Logic
         if (this.isBoss && time > this.nextAttack) {
@@ -119,7 +214,7 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
             }
         }
 
-        this.scene.physics.moveToObject(this, this.target, this.speed);
+        this.scene.physics.moveToObject(this, this.target, currentSpeed);
         this.setFlipX(this.target.x >= this.x);
 
         // Burn Debuff Logic
@@ -136,6 +231,38 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
                 if (this.isElite) this.setTint(0xffff00);
                 else if (this.isBoss && this.configColor) this.setTint(this.configColor);
             }
+        }
+    }
+
+    stun(duration) {
+        this.isStunned = true;
+        this.stunUntil = this.scene.time.now + duration;
+        this.setTint(0x00ffff); // Cyan for stun
+        this.body.setVelocity(0);
+    }
+
+    slow(factor, duration) {
+        this.slowFactor = factor;
+        this.slowUntil = this.scene.time.now + duration;
+        if (!this.isStunned) this.setTint(0x0088ff); // Deep blue for slow
+    }
+
+    updateStunGraphics(time) {
+        this.stunGraphics.clear();
+        this.stunGraphics.lineStyle(2, 0xffff00, 1);
+
+        const centerX = this.x;
+        const centerY = this.y - this.displayHeight / 2 - 10;
+        const radius = 15;
+        const speed = 0.01;
+
+        // Draw 3 small "stars" rotating
+        for (let i = 0; i < 3; i++) {
+            const angle = (time * speed) + (i * Math.PI * 2 / 3);
+            const px = centerX + Math.cos(angle) * radius;
+            const py = centerY + Math.sin(angle) * radius * 0.5; // Ellipse
+            this.stunGraphics.fillStyle(0xffff00, 1);
+            this.stunGraphics.fillCircle(px, py, 3);
         }
     }
 

@@ -53,7 +53,7 @@ export default class UIScene extends Phaser.Scene {
         this.energyBarBg = this.add.rectangle(55, 160, 180, 12, 0x333333).setOrigin(0, 0.5);
         this.energyBarFill = this.add.rectangle(55, 160, 0, 12, 0x00ffff).setOrigin(0, 0.5);
         this.energyText = this.add.text(25, 175, '0 / 100', { fontSize: '11px', fill: '#ccffff', fontFamily: 'Arial Black' });
-        this.energyPrompt = this.add.text(135, 188, 'SPACE TO OVERLOAD', {
+        this.energyPrompt = this.add.text(145, 200, 'SPACE TO OVERLOAD', {
             fontSize: '12px',
             fill: '#00ffff',
             fontStyle: 'bold',
@@ -255,6 +255,18 @@ export default class UIScene extends Phaser.Scene {
         });
 
         gameScene.events.on('levelUp', this.showLevelUp, this);
+
+        // Physics Debug Toggle (Bottom Left)
+        this.add.rectangle(10, height - 60, 200, 50, 0x000000, 0.4).setOrigin(0).setStrokeStyle(1, 0xffffff, 0.2);
+        this.debugCheckbox = this.add.rectangle(25, height - 35, 20, 20, 0x333333).setInteractive().setStrokeStyle(2, 0xffffff);
+        this.debugCheck = this.add.text(25, height - 35, '✔', { fontSize: '16px', fill: '#00ff00' }).setOrigin(0.5).setVisible(false);
+        this.add.text(50, height - 35, 'DEBUG HITBOX', { fontSize: '14px', fill: '#fff', fontFamily: 'Arial Black' }).setOrigin(0, 0.5);
+
+        this.debugCheckbox.on('pointerdown', () => {
+            const isVisible = !this.debugCheck.visible;
+            this.debugCheck.setVisible(isVisible);
+            gameScene.events.emit('toggleDebug', isVisible);
+        });
     }
 
     updateBossBar(hp, max) {
@@ -317,21 +329,22 @@ export default class UIScene extends Phaser.Scene {
             // Highlight bar on the left (Yellow)
             const accentBar = this.add.rectangle(-245, 0, 10, 110, 0xffff00).setOrigin(0.5);
 
-            // Weapon Name (Gold Yellow)
-            const nameTxt = this.add.text(0, -25, opt.config.name.toUpperCase(), {
-                fontSize: '26px',
-                fill: '#ffff00',
-                fontFamily: 'Arial Black',
+            // Weapon Name & LV
+            const levelStr = opt.isNew ? ' [NEW!]' : ` [LV. ${opt.level}]`;
+            const nameTxt = this.add.text(0, -25, opt.config.showName.toUpperCase() + levelStr, {
+                fontSize: '28px',
+                fill: opt.isNew ? '#00f2fe' : '#ffff00',
+                fontFamily: 'Orbitron', // Using Orbitron from main theme
                 fontStyle: 'bold',
                 stroke: '#000',
-                strokeThickness: 2
+                strokeThickness: 3
             }).setOrigin(0.5);
 
             // Description
             const descTxt = this.add.text(0, 15, opt.config.description, {
-                fontSize: '18px',
+                fontSize: '16px',
                 fill: '#ffffff',
-                fontFamily: 'Arial Black',
+                fontFamily: 'monospace',
                 align: 'center',
                 wordWrap: { width: 450 }
             }).setOrigin(0.5);

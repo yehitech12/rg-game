@@ -10,7 +10,7 @@ import { Enemies } from '../config/enemies';
 
 // Assets served from /public/assets/
 const playerImg = 'assets/robot.png';
-const bgImg = 'assets/BG1.png';
+const bgImg = 'assets/BG_Main.jpg';
 const enemyImg = 'assets/enemy.png';
 const bulletImg = 'assets/bullet.png';
 const xpGemImg = 'assets/xp_gem.png';
@@ -44,7 +44,7 @@ export default class GameScene extends Phaser.Scene {
         this.maxOverloadEnergy = 100;
         this.overloadActive = false;
         this.overloadDuration = 10000;
-        this.overloadEndTime = 0;
+        this.overloadTimeLeft = 0;
         this.difficulty = 'normal';
         this.enemiesKilled = 0;
     }
@@ -63,8 +63,9 @@ export default class GameScene extends Phaser.Scene {
         this.levelUpPending = 0;
         this.isLevelingUp = false;
         this.overloadEnergy = 0;
-        this.overloadActive = false;
         this.enemiesKilled = 0;
+        this.isFinalBossSpawned = false;
+        this.isVictoryPending = false;
     }
 
     preload() {
@@ -83,20 +84,461 @@ export default class GameScene extends Phaser.Scene {
         this.load.image('boss_golem', bossGolemImg);
         this.load.image('boss_demon', bossDemonImg);
         this.load.image('chest', chestImg);
+
+        // Slime animations
+        for (let i = 1; i <= 4; i++) {
+            this.load.image(`slime_move_${i}`, `assets/Enemy/SLM${i}.png`);
+        }
+        for (let i = 1; i <= 3; i++) {
+            this.load.image(`slime_die_${i}`, `assets/Enemy/SLM_D${i}.png`);
+        }
+
+        // Skeleton animations
+        for (let i = 1; i <= 4; i++) {
+            this.load.image(`skeleton_move_${i}`, `assets/Enemy/SKE${i}.png`);
+        }
+        for (let i = 1; i <= 2; i++) {
+            this.load.image(`skeleton_die_${i}`, `assets/Enemy/SKE_D${i}.png`);
+        }
+
+        // Knight animations
+        for (let i = 1; i <= 2; i++) {
+            this.load.image(`knight_move_${i}`, `assets/Enemy/KNI${i}.png`);
+            this.load.image(`knight_die_${i}`, `assets/Enemy/KNI_D${i}.png`);
+        }
+
+        // Rock Golem animations
+        for (let i = 1; i <= 3; i++) {
+            this.load.image(`rock_move_${i}`, `assets/Enemy/ROC${i}.png`);
+        }
+        for (let i = 1; i <= 2; i++) {
+            this.load.image(`rock_die_${i}`, `assets/Enemy/ROC_D${i}.png`);
+        }
+
+        // Boss Slime animations
+        for (let i = 1; i <= 6; i++) {
+            this.load.image(`boss_slime_move_${i}`, `assets/Enemy/Boss_SLM_${i}.png`);
+        }
+        for (let i = 1; i <= 3; i++) {
+            this.load.image(`boss_slime_die_${i}`, `assets/Enemy/Boss_SLM_D${i}.png`);
+        }
+
+        // Player walk animation frames (New Main assets)
+        for (let i = 1; i <= 4; i++) {
+            this.load.image(`player_walk_${i}`, `assets/Enemy/Main${i}.png`);
+        }
+
+        // Susanoo individual frames
+        this.load.image('susanoo_move_1', 'assets/SUS_move1.png');
+        this.load.image('susanoo_move_2', 'assets/SUS_move2.png');
+        this.load.image('susanoo_att_1', 'assets/SUS_att1.png');
+        this.load.image('susanoo_att_2', 'assets/SUS_att2.png');
+        this.load.image('susanoo_def_1', 'assets/SUS_def1.png');
+        this.load.image('susanoo_def_2', 'assets/SUS_def2.png');
     }
 
     create() {
+        // Process Susanoo textures - Remove white background
+        ['susanoo_move_1', 'susanoo_move_2', 'susanoo_att_1', 'susanoo_att_2', 'susanoo_def_1', 'susanoo_def_2'].forEach(key => {
+            if (!this.textures.exists(key + '_clean')) {
+                const texture = this.textures.get(key).getSourceImage();
+                const canvas = this.textures.createCanvas(key + '_clean', texture.width, texture.height);
+                const ctx = canvas.getContext();
+                ctx.drawImage(texture, 0, 0);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+                // Remove white/light backgrounds
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                    const r = imageData.data[i];
+                    const g = imageData.data[i + 1];
+                    const b = imageData.data[i + 2];
+
+                    // If pixel is very light (close to white), make it transparent
+                    if (r > 230 && g > 230 && b > 230) {
+                        imageData.data[i + 3] = 0;
+                    }
+                }
+
+                ctx.putImageData(imageData, 0, 0);
+                canvas.refresh();
+            }
+        });
+
+        // Create Susanoo animations using cleaned textures
+        if (!this.anims.exists('susanoo_move_anim')) {
+            this.anims.create({
+                key: 'susanoo_move_anim',
+                frames: [
+                    { key: 'susanoo_move_1_clean' },
+                    { key: 'susanoo_move_2_clean' }
+                ],
+                frameRate: 2,
+                repeat: -1
+            });
+        }
+        if (!this.anims.exists('susanoo_att_anim')) {
+            this.anims.create({
+                key: 'susanoo_att_anim',
+                frames: [
+                    { key: 'susanoo_att_1_clean' },
+                    { key: 'susanoo_att_2_clean' }
+                ],
+                frameRate: 10,
+                repeat: 0
+            });
+        }
+        if (!this.anims.exists('susanoo_def_anim')) {
+            this.anims.create({
+                key: 'susanoo_def_anim',
+                frames: [
+                    { key: 'susanoo_def_1_clean' },
+                    { key: 'susanoo_def_2_clean' }
+                ],
+                frameRate: 8,
+                repeat: 0
+            });
+        }
+
+        // Process player walk textures - Remove white background
+        for (let i = 1; i <= 4; i++) {
+            const key = 'player_walk_' + i;
+            if (!this.textures.exists(key + '_clean')) {
+                const texture = this.textures.get(key).getSourceImage();
+                const canvas = this.textures.createCanvas(key + '_clean', texture.width, texture.height);
+                const ctx = canvas.getContext();
+                ctx.drawImage(texture, 0, 0);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+                // Remove white/light backgrounds
+                for (let j = 0; j < imageData.data.length; j += 4) {
+                    const r = imageData.data[j];
+                    const g = imageData.data[j + 1];
+                    const b = imageData.data[j + 2];
+
+                    // If pixel is very light (close to white), make it transparent
+                    if (r > 230 && g > 230 && b > 230) {
+                        imageData.data[j + 3] = 0;
+                    }
+                }
+
+                ctx.putImageData(imageData, 0, 0);
+                canvas.refresh();
+            }
+        }
+
+        // Create player walk animation
+        if (!this.anims.exists('player_walk')) {
+            this.anims.create({
+                key: 'player_walk',
+                frames: [
+                    { key: 'player_walk_1_clean' },
+                    { key: 'player_walk_2_clean' },
+                    { key: 'player_walk_3_clean' },
+                    { key: 'player_walk_4_clean' }
+                ],
+                frameRate: 8,
+                repeat: -1
+            });
+        }
+
+        // Process slime textures - Remove white background
+        const slimeKeys = [];
+        for (let i = 1; i <= 4; i++) slimeKeys.push(`slime_move_${i}`);
+        for (let i = 1; i <= 3; i++) slimeKeys.push(`slime_die_${i}`);
+
+        slimeKeys.forEach(key => {
+            if (!this.textures.exists(key + '_clean')) {
+                const texture = this.textures.get(key).getSourceImage();
+                const canvas = this.textures.createCanvas(key + '_clean', texture.width, texture.height);
+                const ctx = canvas.getContext();
+                ctx.drawImage(texture, 0, 0);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                    const r = imageData.data[i];
+                    const g = imageData.data[i + 1];
+                    const b = imageData.data[i + 2];
+                    if (r > 240 && g > 240 && b > 240) {
+                        imageData.data[i + 3] = 0;
+                    }
+                }
+                ctx.putImageData(imageData, 0, 0);
+                canvas.refresh();
+            }
+        });
+
+        // Create slime animations
+        if (!this.anims.exists('slime_move')) {
+            this.anims.create({
+                key: 'slime_move',
+                frames: [
+                    { key: 'slime_move_1_clean' },
+                    { key: 'slime_move_2_clean' },
+                    { key: 'slime_move_3_clean' },
+                    { key: 'slime_move_4_clean' }
+                ],
+                frameRate: 6,
+                repeat: -1
+            });
+        }
+        if (!this.anims.exists('slime_die')) {
+            this.anims.create({
+                key: 'slime_die',
+                frames: [
+                    { key: 'slime_die_1_clean' },
+                    { key: 'slime_die_2_clean' },
+                    { key: 'slime_die_3_clean' }
+                ],
+                frameRate: 10,
+                repeat: 0
+            });
+        }
+
+        // Process skeleton textures - Remove white background
+        const skeletonKeys = [];
+        for (let i = 1; i <= 4; i++) skeletonKeys.push(`skeleton_move_${i}`);
+        for (let i = 1; i <= 2; i++) skeletonKeys.push(`skeleton_die_${i}`);
+
+        skeletonKeys.forEach(key => {
+            if (!this.textures.exists(key + '_clean')) {
+                const texture = this.textures.get(key).getSourceImage();
+                const canvas = this.textures.createCanvas(key + '_clean', texture.width, texture.height);
+                const ctx = canvas.getContext();
+                ctx.drawImage(texture, 0, 0);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                    const r = imageData.data[i];
+                    const g = imageData.data[i + 1];
+                    const b = imageData.data[i + 2];
+                    // 更激進地移除背景與腳下淺色影子 (門檻降至 160)
+                    if (r > 160 && g > 160 && b > 160) {
+                        imageData.data[i + 3] = 0;
+                    }
+                }
+                ctx.putImageData(imageData, 0, 0);
+                canvas.refresh();
+            }
+        });
+
+        // Create skeleton animations
+        if (!this.anims.exists('skeleton_move')) {
+            this.anims.create({
+                key: 'skeleton_move',
+                frames: [
+                    { key: 'skeleton_move_1_clean' },
+                    { key: 'skeleton_move_2_clean' },
+                    { key: 'skeleton_move_3_clean' },
+                    { key: 'skeleton_move_4_clean' }
+                ],
+                frameRate: 4, // 減慢動畫速度
+                repeat: -1
+            });
+        }
+        if (!this.anims.exists('skeleton_die')) {
+            this.anims.create({
+                key: 'skeleton_die',
+                frames: [
+                    { key: 'skeleton_die_1_clean' },
+                    { key: 'skeleton_die_2_clean' }
+                ],
+                frameRate: 4, // 減慢動畫速度
+                repeat: 0
+            });
+        }
+
+        // Process knight textures - Remove white background
+        const knightKeys = [];
+        for (let i = 1; i <= 2; i++) {
+            knightKeys.push(`knight_move_${i}`);
+            knightKeys.push(`knight_die_${i}`);
+        }
+
+        knightKeys.forEach(key => {
+            if (!this.textures.exists(key + '_clean')) {
+                const texture = this.textures.get(key).getSourceImage();
+                const canvas = this.textures.createCanvas(key + '_clean', texture.width, texture.height);
+                const ctx = canvas.getContext();
+                ctx.drawImage(texture, 0, 0);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                    const r = imageData.data[i];
+                    const g = imageData.data[i + 1];
+                    const b = imageData.data[i + 2];
+                    // 平衡去背法：只針對接近白色的「灰色/白色」像素進行移除
+                    // 同時檢查 R,G,B 是否非常接近（灰階特徵），以保護像淺藍色刀刃這種有色彩的區域
+                    const isGrayscale = Math.abs(r - g) < 20 && Math.abs(g - b) < 20 && Math.abs(r - b) < 20;
+                    if (r > 180 && g > 180 && b > 180 && isGrayscale) {
+                        imageData.data[i + 3] = 0;
+                    }
+                }
+                ctx.putImageData(imageData, 0, 0);
+                canvas.refresh();
+            }
+        });
+
+        // Create knight animations
+        if (!this.anims.exists('knight_move')) {
+            this.anims.create({
+                key: 'knight_move',
+                frames: [
+                    { key: 'knight_move_1_clean' },
+                    { key: 'knight_move_2_clean' }
+                ],
+                frameRate: 4,
+                repeat: -1
+            });
+        }
+        if (!this.anims.exists('knight_die')) {
+            this.anims.create({
+                key: 'knight_die',
+                frames: [
+                    { key: 'knight_die_1_clean' },
+                    { key: 'knight_die_2_clean' }
+                ],
+                frameRate: 4,
+                repeat: 0
+            });
+        }
+
+        // Process rock textures - Remove white background
+        const rockKeys = [];
+        for (let i = 1; i <= 3; i++) rockKeys.push(`rock_move_${i}`);
+        for (let i = 1; i <= 2; i++) rockKeys.push(`rock_die_${i}`);
+
+        rockKeys.forEach(key => {
+            if (!this.textures.exists(key + '_clean')) {
+                const texture = this.textures.get(key).getSourceImage();
+                const canvas = this.textures.createCanvas(key + '_clean', texture.width, texture.height);
+                const ctx = canvas.getContext();
+                ctx.drawImage(texture, 0, 0);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                    const r = imageData.data[i];
+                    const g = imageData.data[i + 1];
+                    const b = imageData.data[i + 2];
+                    // 針對魔像使用更強力的灰階去背 (門檻 150)
+                    const isGrayscale = Math.abs(r - g) < 30 && Math.abs(g - b) < 30 && Math.abs(r - b) < 30;
+                    if (r > 150 && g > 150 && b > 150 && isGrayscale) {
+                        imageData.data[i + 3] = 0;
+                    }
+                }
+                ctx.putImageData(imageData, 0, 0);
+                canvas.refresh();
+            }
+        });
+
+        // Create rock animations
+        if (!this.anims.exists('rock_move')) {
+            this.anims.create({
+                key: 'rock_move',
+                frames: [
+                    { key: 'rock_move_1_clean' },
+                    { key: 'rock_move_2_clean' },
+                    { key: 'rock_move_3_clean' }
+                ],
+                frameRate: 4,
+                repeat: -1
+            });
+        }
+        if (!this.anims.exists('rock_die')) {
+            this.anims.create({
+                key: 'rock_die',
+                frames: [
+                    { key: 'rock_die_1_clean' },
+                    { key: 'rock_die_2_clean' }
+                ],
+                frameRate: 4,
+                repeat: 0
+            });
+        }
+
+        // Process boss slime textures - Remove white background
+        const bossSlimeKeys = [];
+        for (let i = 1; i <= 6; i++) bossSlimeKeys.push(`boss_slime_move_${i}`);
+        for (let i = 1; i <= 3; i++) bossSlimeKeys.push(`boss_slime_die_${i}`);
+
+        bossSlimeKeys.forEach(key => {
+            if (!this.textures.exists(key + '_clean')) {
+                const texture = this.textures.get(key).getSourceImage();
+                const canvas = this.textures.createCanvas(key + '_clean', texture.width, texture.height);
+                const ctx = canvas.getContext();
+                ctx.drawImage(texture, 0, 0);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                    const r = imageData.data[i];
+                    const g = imageData.data[i + 1];
+                    const b = imageData.data[i + 2];
+                    if (r > 230 && g > 230 && b > 230) {
+                        imageData.data[i + 3] = 0;
+                    }
+                }
+                ctx.putImageData(imageData, 0, 0);
+                canvas.refresh();
+            }
+        });
+
+        // Create boss slime animations
+        if (!this.anims.exists('boss_slime_move')) {
+            this.anims.create({
+                key: 'boss_slime_move',
+                frames: [
+                    { key: 'boss_slime_move_1_clean' },
+                    { key: 'boss_slime_move_2_clean' },
+                    { key: 'boss_slime_move_3_clean' },
+                    { key: 'boss_slime_move_4_clean' },
+                    { key: 'boss_slime_move_5_clean' },
+                    { key: 'boss_slime_move_6_clean' }
+                ],
+                frameRate: 6,
+                repeat: -1
+            });
+        }
+        if (!this.anims.exists('boss_slime_die')) {
+            this.anims.create({
+                key: 'boss_slime_die',
+                frames: [
+                    { key: 'boss_slime_die_1_clean' },
+                    { key: 'boss_slime_die_2_clean' },
+                    { key: 'boss_slime_die_3_clean' }
+                ],
+                frameRate: 6,
+                repeat: 0
+            });
+        }
+
         // No world bounds - infinite map
         this.physics.world.setBounds();
+        // 提升物理運算精度，防止主角在高速移動或側邊碰撞時穿牆
+        this.physics.world.setFPS(120);
+        this.physics.world.TILE_BIAS = 32; // 增加碰撞偵測容差
 
         // Add BG1 background as tileSprite (seamless repeating)
         // Make it large enough to cover the viewport
-        const bgWidth = window.innerWidth * 2;
-        const bgHeight = window.innerHeight * 2;
-        this.background = this.add.tileSprite(0, 0, bgWidth, bgHeight, 'bg');
-        this.background.setTint(0x888888); // Darken and desaturate to emphasize foreground
-        this.background.setAlpha(0.7);
+        const bgWidth = window.innerWidth;
+        const bgHeight = window.innerHeight;
+        // 將原點設在左上角 (0,0)，方便計算與世界座標的對齊
+        this.background = this.add.tileSprite(0, 0, bgWidth, bgHeight, 'bg').setOrigin(0);
+        this.background.setAlpha(1.0);
         this.background.setScrollFactor(0); // Fixed to camera
+
+        // --- 椅子物理碰撞體機制 ---
+        // 假設背景圖尺寸為 1024x1024 (常見生成尺寸)
+        this.bgTileSize = 1024;
+        this.obstacles = this.physics.add.staticGroup();
+
+        // 建立 9 個碰撞體，覆蓋玩家當前所在的 3x3 區塊範圍
+        this.obstacleBodies = [];
+        for (let i = 0; i < 9; i++) {
+            // 王座 Hitbox (隱藏，由系統 debug 功能顯示)
+            const obs = this.add.rectangle(0, 0, 100, 130, 0xff00ff, 0);
+            this.physics.add.existing(obs, true);
+            this.obstacles.add(obs);
+            this.obstacleBodies.push(obs);
+        }
+
+        // 儲存上一次更新時的區塊索引，避免每幀運算
+        this.lastTileX = NaN;
+        this.lastTileY = NaN;
+        // ------------------------
 
         this.player = new Player(this, 0, 0);
 
@@ -116,9 +558,42 @@ export default class GameScene extends Phaser.Scene {
             canvas.refresh();
         }
 
-        this.player.setTexture('player_clean');
-        this.player.setScale(0.04);
+        // Set player to use walk animation texture
+        this.player.setTexture('player_walk_1_clean');
+        this.player.setScale(0.3); // 主角比例改為 0.3
+
+        // 強化主角 Hitbox 穩定性
+        // 使用更具體的像素尺寸 (50x50) 並確保精確置中，這能有效防止鑽入王座邊緣
+        this.player.body.setSize(50, 50);
+        this.player.body.setOffset((this.player.width - 50) / 2, (this.player.height - 50) / 2);
+
         this.player.shield = 0;
+
+        // Process Susanoo textures - Remove white background
+        ['susanoo_move', 'susanoo_att', 'susanoo_def'].forEach(key => {
+            if (!this.textures.exists(key + '_clean')) {
+                const texture = this.textures.get(key).getSourceImage();
+                const canvas = this.textures.createCanvas(key + '_clean', texture.width, texture.height);
+                const ctx = canvas.getContext();
+                ctx.drawImage(texture, 0, 0);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+                // Remove white/light backgrounds
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                    const r = imageData.data[i];
+                    const g = imageData.data[i + 1];
+                    const b = imageData.data[i + 2];
+
+                    // If pixel is very light (close to white), make it transparent
+                    if (r > 230 && g > 230 && b > 230) {
+                        imageData.data[i + 3] = 0;
+                    }
+                }
+
+                ctx.putImageData(imageData, 0, 0);
+                canvas.refresh();
+            }
+        });
 
         // Process Robot2 texture for Overload mode
         if (!this.textures.exists('player_robot2')) {
@@ -144,7 +619,7 @@ export default class GameScene extends Phaser.Scene {
         this.boxes = this.physics.add.group({ classType: Box, runChildUpdate: true });
 
         this.weaponSystem = new WeaponSystem(this);
-        this.weaponSystem.addWeapon('Handgun', Weapons['Handgun']);
+        this.weaponSystem.addWeapon('Susanoo', Weapons['Susanoo']);
 
         // Create fire texture
         if (!this.textures.exists('fire')) {
@@ -157,6 +632,23 @@ export default class GameScene extends Phaser.Scene {
         this.physics.add.overlap(this.bullets, this.enemies, this.hitEnemy, null, this);
         this.physics.add.overlap(this.bullets, this.boxes, this.hitBox, null, this);
         this.physics.add.overlap(this.player, this.enemies, this.hitPlayer, null, this);
+
+        // 讓椅子擋住玩家與怪物
+        this.physics.add.collider(this.player, this.obstacles);
+        this.physics.add.collider(this.enemies, this.obstacles);
+
+        // Debug Toggle Listener
+        this.events.on('toggleDebug', (isVisible) => {
+            this.physics.world.drawDebug = isVisible;
+            if (isVisible) {
+                if (!this.physics.world.debugGraphic) {
+                    this.physics.world.createDebugGraphic();
+                }
+                this.physics.world.debugGraphic.setVisible(true);
+            } else if (this.physics.world.debugGraphic) {
+                this.physics.world.debugGraphic.setVisible(false);
+            }
+        });
 
         this.events.off('setSpeed');
         this.events.on('setSpeed', (multiplier) => {
@@ -186,6 +678,7 @@ export default class GameScene extends Phaser.Scene {
 
             // Update background tilePosition for seamless scrolling
             if (this.background) {
+                // 簡化公式：將背景貼圖與相機直接同步，確保 1:1 像素對應
                 this.background.tilePositionX = this.cameras.main.scrollX;
                 this.background.tilePositionY = this.cameras.main.scrollY;
             }
@@ -196,11 +689,42 @@ export default class GameScene extends Phaser.Scene {
             }
 
             if (this.overloadActive) {
-                if (time > this.overloadEndTime) {
+                this.overloadTimeLeft -= (delta * this.time.timeScale);
+                if (this.overloadTimeLeft <= 0) {
                     this.deactivateOverload();
                 } else {
                     this.updateUI();
                 }
+            }
+
+            // 更新椅子物理碰撞體位置
+            this.updateObstacles();
+        }
+    }
+
+    updateObstacles() {
+        // 計算玩家所在的區塊座標
+        const tileX = Math.floor((this.player.x + (this.bgTileSize / 2)) / this.bgTileSize);
+        const tileY = Math.floor((this.player.y + (this.bgTileSize / 2)) / this.bgTileSize);
+
+        // 如果區塊沒變，就不重新移動碰撞體
+        if (tileX === this.lastTileX && tileY === this.lastTileY) return;
+
+        this.lastTileX = tileX;
+        this.lastTileY = tileY;
+
+        let index = 0;
+        for (let dx = -1; dx <= 1; dx++) {
+            for (let dy = -1; dy <= 1; dy++) {
+                const obs = this.obstacleBodies[index];
+                // 地圖 1024x1024，王座在中心 (512, 512)
+                // 根據用戶回饋微調：往右 10, 往上 35 (再往上 5px)
+                const worldX = (tileX + dx) * this.bgTileSize + 512 + 10;
+                const worldY = (tileY + dy) * this.bgTileSize + 512 - 45;
+
+                obs.setPosition(worldX, worldY);
+                obs.body.updateFromGameObject(); // 靜態物件移動後需手動更新物理位置
+                index++;
             }
         }
     }
@@ -224,7 +748,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     spawnEnemy() {
-        if (!this.player || this.enemies.countActive() > this.maxEnemies) return;
+        if (!this.player || this.enemies.countActive() > this.maxEnemies || this.isVictoryPending) return;
 
         const distance = Phaser.Math.Between(700, 1000);
         const angle = Phaser.Math.Between(0, 360);
@@ -241,6 +765,11 @@ export default class GameScene extends Phaser.Scene {
             else type = 'dragon';
 
             const config = { ...Enemies[type] };
+
+            // Dynamic Scaling: HP increases by 10% every minute
+            const timeScaling = 1 + (Math.floor(this.gameTimer / 60) * 0.1);
+            config.hp *= timeScaling;
+            config.xp *= timeScaling; // More tanky enemies give slightly more XP
 
             // Apply Difficulty Modifiers
             if (this.difficulty === 'hard') {
@@ -295,6 +824,7 @@ export default class GameScene extends Phaser.Scene {
 
             boss.spawn(x, y, config);
             boss.setTarget(this.player);
+            boss.isMegaBoss = config.isMegaBoss || false;
 
             const txt = this.add.text(this.player.x, this.player.y - 150, `${Enemies[key].name} APPEARED!`, { fontSize: '40px', fill: '#ff00ff' }).setOrigin(0.5);
             this.tweens.add({ targets: txt, alpha: 0, duration: 4000, onComplete: () => txt.destroy() });
@@ -365,8 +895,16 @@ export default class GameScene extends Phaser.Scene {
         this.updateUI();
     }
 
-    enemyDied(x, y, xpValue) {
+    enemyDied(x, y, xpValue, isBoss, isMegaBoss) {
         this.enemiesKilled++;
+
+        if (isBoss) {
+            this.spawnMegaHeal(x, y);
+        }
+
+        if (isMegaBoss) {
+            this.time.delayedCall(2000, () => this.gameOver(true));
+        }
         const gem = this.xpGems.get();
         if (gem) {
             gem.spawn(x, y, xpValue);
@@ -443,9 +981,84 @@ export default class GameScene extends Phaser.Scene {
         const secs = this.gameTimer % 60;
         this.events.emit('updateTime', `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`);
 
-        if (this.gameTimer >= 600) {
-            this.gameOver(true);
+        if (this.gameTimer >= 600 && !this.isVictoryPending) {
+            this.isVictoryPending = true;
+            this.spawnFinalBoss();
         }
+    }
+
+    spawnFinalBoss() {
+        this.isFinalBossSpawned = true;
+
+        // Kill all normal enemies for the final showdown
+        this.enemies.getChildren().forEach(e => {
+            if (e.active && !e.isBoss) e.die();
+        });
+
+        const x = this.player.x + 500;
+        const y = this.player.y;
+
+        const config = { ...Enemies['dragon'] };
+        config.hp *= 15; // Final boss multiplier
+        config.damage *= 2;
+        config.scale = 2.5; // Adjusted scale to be similar to other bosses but not overly huge
+        config.name = "ULTIMATE OVERLORD";
+        config.isBoss = true;
+        config.isMegaBoss = true;
+
+        const boss = this.enemies.get();
+        if (boss) {
+            boss.spawn(x, y, config);
+            boss.setTarget(this.player);
+
+            const txt = this.add.text(this.cameras.main.width / 2, this.cameras.main.height / 2, 'FINAL BOSS APPROACHING', {
+                fontSize: '64px',
+                fill: '#ff0000',
+                fontFamily: 'Arial Black'
+            }).setOrigin(0.5).setScrollFactor(0);
+
+            this.tweens.add({
+                targets: txt,
+                alpha: 0,
+                duration: 5000,
+                onComplete: () => txt.destroy()
+            });
+        }
+    }
+
+    spawnMegaHeal(x, y) {
+        const circle = this.add.circle(x, y, 20, 0x00ff00);
+        this.physics.add.existing(circle);
+        circle.setStrokeStyle(4, 0xffffff, 0.8);
+
+        const txt = this.add.text(x, y - 40, 'FULL HEAL', {
+            fontSize: '18px',
+            fill: '#00ff00',
+            fontStyle: 'bold',
+            stroke: '#000',
+            strokeThickness: 4
+        }).setOrigin(0.5);
+
+        const overlap = this.physics.add.overlap(this.player, circle, () => {
+            overlap.destroy();
+            circle.destroy();
+            txt.destroy();
+            this.player.health = this.player.maxHealth;
+            this.updateUI();
+
+            const healEffect = this.add.text(this.player.x, this.player.y, 'MAX HP!', {
+                fontSize: '32px',
+                fill: '#00ff00',
+                fontStyle: 'bold'
+            }).setOrigin(0.5);
+            this.tweens.add({
+                targets: healEffect,
+                y: this.player.y - 100,
+                alpha: 0,
+                duration: 1500,
+                onComplete: () => healEffect.destroy()
+            });
+        });
     }
 
     gameOver(isVictory) {
@@ -488,7 +1101,7 @@ export default class GameScene extends Phaser.Scene {
 
     activateOverload() {
         this.overloadActive = true;
-        this.overloadEndTime = this.time.now + this.overloadDuration;
+        this.overloadTimeLeft = this.overloadDuration;
 
         this.player.setTexture('player_robot2');
         this.player.setScale(0.75);
@@ -511,16 +1124,28 @@ export default class GameScene extends Phaser.Scene {
         });
 
         this.cameras.main.flash(500, 255, 255, 255);
+
+        // 隱藏須佐能乎
+        if (this.player.susanoo && this.player.susanoo.container) {
+            this.player.susanoo.container.setVisible(false);
+        }
+
         this.updateUI();
     }
 
     deactivateOverload() {
         this.overloadActive = false;
         this.overloadEnergy = 0;
-        this.player.setTexture('player_clean');
-        this.player.setScale(0.04);
+        this.player.setTexture('player_walk_1_clean'); // 恢復行走貼圖
+        this.player.setScale(0.3);
         this.player.body.setSize(64, 64);
         this.weaponSystem.weapons = this.savedWeapons;
+
+        // 恢復須佐能乎
+        if (this.player.susanoo && this.player.susanoo.container) {
+            this.player.susanoo.container.setVisible(true);
+        }
+
         this.updateUI();
     }
 
@@ -532,10 +1157,33 @@ export default class GameScene extends Phaser.Scene {
 
         this.isLevelingUp = true;
         const weaponKeys = Object.keys(Weapons).filter(k => !k.startsWith('Overload_'));
+
+        // Filter out weapons that are already max level (LV5)
+        const availableKeys = weaponKeys.filter(k => {
+            const current = this.weaponSystem.weapons[k] || (this.savedWeapons ? this.savedWeapons[k] : null);
+            return !current || current.level < 5;
+        });
+
+        // Fallback: If everything is maxed, give player HP or buff (simplified here)
+        if (availableKeys.length === 0) {
+            this.player.health = Math.min(this.player.maxHealth, this.player.health + 50);
+            this.levelUpPending--;
+            this.isLevelingUp = false;
+            this.scene.resume('GameScene');
+            return;
+        }
+
         const options = [];
-        const selected = Phaser.Utils.Array.Shuffle(weaponKeys).slice(0, 3);
+        const selected = Phaser.Utils.Array.Shuffle(availableKeys).slice(0, 3);
         selected.forEach(key => {
-            options.push({ key: key, config: Weapons[key] });
+            const current = this.weaponSystem.weapons[key] || (this.savedWeapons ? this.savedWeapons[key] : null);
+            const nextLevel = current ? current.level + 1 : 1;
+            options.push({
+                key: key,
+                config: Weapons[key],
+                level: nextLevel,
+                isNew: !current
+            });
         });
 
         const ui = this.scene.get('UIScene');
@@ -543,26 +1191,13 @@ export default class GameScene extends Phaser.Scene {
             this.level++;
             this.levelUpPending--;
             if (choice) {
-                this.weaponSystem.addWeapon(choice.key, Weapons[choice.key]);
-
+                // If in overload, prioritize updating savedWeapons
                 if (this.overloadActive && this.savedWeapons) {
-                    if (!this.savedWeapons[choice.key]) {
-                        this.savedWeapons[choice.key] = {
-                            config: choice.config,
-                            level: 1,
-                            nextFire: 0,
-                            baseStats: { ...choice.config.baseStats }
-                        };
-                    } else {
-                        const w = this.savedWeapons[choice.key];
-                        w.level++;
-                        const up = w.config.upgrade;
-                        if (up.damage) w.baseStats.damage += up.damage;
-                        if (up.range) w.baseStats.range += up.range;
-                        if (up.attackSpeed) w.baseStats.attackSpeed += up.attackSpeed;
-                        if (up.pierce) w.baseStats.pierce = (w.baseStats.pierce || 1) + up.pierce;
-                        if (up.count) w.baseStats.count = (w.baseStats.count || 1) + up.count;
-                    }
+                    // Temporarily add to a dummy system to leverage its upgrade logic
+                    const tempSystem = { weapons: this.savedWeapons, config: Weapons[choice.key] };
+                    this.weaponSystem.addWeapon.call(tempSystem, choice.key, Weapons[choice.key]);
+                } else {
+                    this.weaponSystem.addWeapon(choice.key, Weapons[choice.key]);
                 }
             }
             this.scene.resume('GameScene');

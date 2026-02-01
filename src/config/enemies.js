@@ -5,35 +5,35 @@ export const Enemies = {
         speed: 50,
         damage: 10,
         xp: 10,
-        sprite: 'enemy',
-        scale: 1.0
+        sprite: 'slime',
+        scale: 0.3
     },
     'fast': {
-        name: 'Fast Bat',
-        hp: 12,
-        speed: 160,
-        damage: 8,
+        name: '骷髏士兵',
+        hp: 15,
+        speed: 130,
+        damage: 12,
         xp: 25,
-        sprite: 'enemy_fast',
-        scale: 1.0
+        sprite: 'skeleton',
+        scale: 0.45
     },
     'tank': {
-        name: 'Heavy Golem',
+        name: '岩石魔像',
         hp: 200,
         speed: 35,
         damage: 35,
         xp: 80,
-        sprite: 'enemy_tank',
-        scale: 1.8
+        sprite: 'rock',
+        scale: 0.7
     },
     'dragon': {
-        name: 'Dragon',
+        name: '惡靈騎士團',
         hp: 120,
         speed: 90,
         damage: 30,
         xp: 150,
-        sprite: 'dragon',
-        scale: 2.0
+        sprite: 'knight',
+        scale: 0.55
     },
     // BOSSES - Massively upscaled
     'boss_slime': {
@@ -43,7 +43,7 @@ export const Enemies = {
         damage: 40,
         xp: 2000,
         sprite: 'boss_slime',
-        scale: 10.0,
+        scale: 4.0,
         isBoss: true,
         attackType: 'aoe',
         attackRange: 200,
