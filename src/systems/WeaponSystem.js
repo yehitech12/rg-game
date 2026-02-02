@@ -889,15 +889,14 @@ export default class WeaponSystem {
             // 獲取時間縮放以調整冷卻
             const timeScale = this.scene.time.timeScale || 1;
 
-            // --- LOGIC: Shield (Low HP) ---
-            const currentShield = player.stats.shield || 0;
-            const maxHP = player.stats.maxHp || 100;
-            const hpRatio = player.stats.hp / maxHP;
+            // --- LOGIC: Shield (Condition: Shield < 30% Max HP) ---
+            const currentShield = player.shield || 0;
+            const maxHP = player.maxHealth || 100;
 
-            // 只在 HP < 40% 時觸發護盾（避免一直觸發）
-            if (hpRatio < 0.4) {
+            if (currentShield < (maxHP * 0.3) && now > (susanoo.nextShieldTime || 0)) {
                 this.susanooActionShield(player, stats);
-                susanoo.nextActionTime = now + (30000 / timeScale); // Shield 30s CD (受時間加速影響)
+                susanoo.nextShieldTime = now + (30000 / timeScale); // Keep cooldown to prevent spam
+                susanoo.nextActionTime = now + (1000 / timeScale);
                 return true;
             }
 
@@ -971,6 +970,7 @@ export default class WeaponSystem {
             sprite,
             state: 'IDLE',
             nextActionTime: 0,
+            nextShieldTime: 0, // Separate timer for Shield (30s interval)
             level: level,
             baseScale: baseScale
         };
@@ -1135,29 +1135,43 @@ export default class WeaponSystem {
         // 播放防禦動畫
         player.susanoo.sprite.play('susanoo_def_anim');
 
-        const shieldG = this.scene.add.graphics();
-        player.susanoo.container.add(shieldG);
-
-        // Visual: Big X Shield + Bubble
-        shieldG.clear();
-        shieldG.lineStyle(20, 0xaa00ff, 0.8);
-        shieldG.beginPath();
-        shieldG.moveTo(-60, -60); shieldG.lineTo(60, 60);
-        shieldG.moveTo(60, -60); shieldG.lineTo(-60, 60);
-        shieldG.strokePath();
-
-        shieldG.lineStyle(4, 0xffffff, 0.5);
-        shieldG.strokeCircle(0, 0, 90);
-
         // Logic: Restore Shield
         const restore = stats.shieldRestore || 30;
-        if (player.stats) player.stats.shield = Math.min((player.stats.shield || 0) + restore, player.stats.maxShield || 100);
+        player.shield = Math.min((player.shield || 0) + restore, player.maxHealth || 100);
 
-        this.scene.time.delayedCall(800, () => {
-            if (shieldG.active) shieldG.destroy();
-            if (player.susanoo) {
-                player.susanoo.state = 'IDLE';
-                player.susanoo.sprite.play('susanoo_move_anim'); // 回到移動動畫
+        // --- FIX UI DELAY: Force UI update immediately ---
+        if (this.scene.updateUI) {
+            this.scene.updateUI();
+        }
+
+        // --- USER SETTINGS: SHIELD EFFECT ---
+        const FINAL_SIZE = 0.7;   // 設定護盾最終大小 (原本 1.5)
+        const DURATION_MS = 1600;  // 設定護盾動畫時間 (毫秒, 原本 600)
+        // ------------------------------------
+
+        // Visual: Shield Texture Effect - Rapid Growth then Vanish
+        const shieldSprite = this.scene.add.sprite(0, 0, 'shield_clean_v2');
+        shieldSprite.setScale(0); // Start tiny
+        shieldSprite.setAlpha(0.9);
+        shieldSprite.setBlendMode(Phaser.BlendModes.ADD); // Glowy
+
+        player.susanoo.container.add(shieldSprite);
+        player.susanoo.container.bringToTop(shieldSprite);
+
+        const timeScale = this.scene.time.timeScale || 1;
+        this.scene.tweens.add({
+            targets: shieldSprite,
+            scaleX: FINAL_SIZE,
+            scaleY: FINAL_SIZE,
+            alpha: { from: 1, to: 0 }, // Fade out while growing
+            duration: DURATION_MS / timeScale,
+            ease: 'Back.out', // Pop effect
+            onComplete: () => {
+                shieldSprite.destroy();
+                if (player.susanoo) {
+                    player.susanoo.state = 'IDLE';
+                    player.susanoo.sprite.play('susanoo_move_anim');
+                }
             }
         });
     }
@@ -1172,47 +1186,75 @@ export default class WeaponSystem {
 
         const timeScale = this.scene.time.timeScale || 1;
 
-        // Visual: Expanding Shockwave (Separate)
+        // --- Visual: Enhanced Force Push ---
         const pushG = this.scene.add.graphics();
         player.susanoo.container.add(pushG);
+        player.susanoo.container.bringToTop(pushG);
 
-        pushG.fillStyle(0xaa00ff, 0.5);
-        pushG.fillCircle(0, 0, 10); // Start small
+        const duration = 350 / timeScale;
+        const maxR = 300;
 
-        // Pulse the ghost itself slightly
-        this.scene.tweens.add({
-            targets: player.susanoo.container,
-            scaleX: 1.2, scaleY: 1.2,
-            duration: 100 / timeScale,
-            yoyo: true
-        });
-
-        // Expand shockwave
-        this.scene.tweens.add({
-            targets: pushG,
-            scaleX: 10, scaleY: 10, // Grows huge
-            alpha: 0,
-            duration: 300 / timeScale,
+        this.scene.tweens.addCounter({
+            from: 0,
+            to: 1,
+            duration: duration,
+            ease: 'Cubic.out',
             onUpdate: (tween) => {
-                // Redraw if needed for sharpness, or just scale graphics object
-                // Scaling is fine for simple circle
+                const t = tween.getValue();
+                pushG.clear();
+
+                // 1. Solid Shockwave Core (White -> Blue -> Clear)
+                pushG.fillStyle(0x00ffff, 0.2 * (1 - t));
+                pushG.fillCircle(0, 0, maxR * t);
+
+                // 2. Thick Expanding Ring
+                pushG.lineStyle(10 * (1 - t), 0xffffff, 1 * (1 - t));
+                pushG.strokeCircle(0, 0, maxR * t);
+
+                // 3. Secondary Ring (Delayed)
+                if (t > 0.2) {
+                    const t2 = (t - 0.2) / 0.8;
+                    pushG.lineStyle(20 * (1 - t2), 0x0088ff, 0.5 * (1 - t2));
+                    pushG.strokeCircle(0, 0, (maxR * 0.8) * t2);
+                }
+
+                // 4. Force Distortion Lines (Spikes sticking out)
+                const spikes = 16;
+                for (let j = 0; j < spikes; j++) {
+                    const angle = (j / spikes) * Math.PI * 2;
+                    const startR = 50 + (t * 150);
+                    const len = 60 * t;
+                    const sx = Math.cos(angle) * startR;
+                    const sy = Math.sin(angle) * startR;
+                    const ex = Math.cos(angle) * (startR + len);
+                    const ey = Math.sin(angle) * (startR + len);
+
+                    pushG.lineStyle(4, 0xff00ff, 0.8 * (1 - t));
+                    pushG.beginPath();
+                    pushG.moveTo(sx, sy);
+                    pushG.lineTo(ex, ey);
+                    pushG.strokePath();
+                }
             },
             onComplete: () => {
-                if (pushG.active) pushG.destroy();
+                pushG.destroy();
                 if (player.susanoo) {
                     player.susanoo.state = 'IDLE';
-                    player.susanoo.sprite.play('susanoo_move_anim'); // 回到移動動畫
+                    player.susanoo.sprite.play('susanoo_move_anim');
                 }
             }
         });
 
-        // Apply Knockback logic immediately or mid-tween
+        // Apply Knockback Logic
         targets.forEach(t => {
             if (t.active) {
                 t.takeDamage(dmg);
                 const angle = Phaser.Math.Angle.Between(player.x, player.y, t.x, t.y);
-                t.x += Math.cos(angle) * 300; // 擊退300px
-                t.y += Math.sin(angle) * 300;
+                const force = 350;
+                t.x += Math.cos(angle) * force;
+                t.y += Math.sin(angle) * force;
+                // Add stun if possible
+                if (t.stun) t.stun(1000);
             }
         });
     }
@@ -1220,94 +1262,290 @@ export default class WeaponSystem {
     susanooActionSweep(player, stats, targets) {
         if (!player.susanoo) return;
         player.susanoo.state = 'SWEEP';
-        const dmg = stats.damage || 50;
 
-        // 切換到攻擊動畫
-        player.susanoo.sprite.play('susanoo_att_anim');
+        // Damage per hit (Half of total damage)
+        const totalDmg = stats.damage || 50;
+        const dmgPerHit = totalDmg / 2;
+
+        const timeScale = this.scene.time.timeScale || 1;
 
         // 找到目標方向
         const target = targets[0];
-        const angle = target ? Phaser.Math.Angle.Between(player.x, player.y, target.x, target.y) : 0;
+        const baseAngle = target ? Phaser.Math.Angle.Between(player.x, player.y, target.x, target.y) : 0;
 
-        // 建立虛空風格的斬擊視覺效果
-        const slashG = this.scene.add.graphics();
-        player.susanoo.container.add(slashG);
+        // 斬擊範圍參數
+        const range = stats.range || 250;
 
-        // 斬擊範圍參數（根據等級和攻擊範圍調整）
-        const baseRadius = stats.range || 250;
-        const slashRadius = baseRadius; // 視覺範圍等於攻擊範圍
-        const slashWidth = Math.PI * 0.8; // 弧度寬度增加到144度
+        // Helper: Spawn refined sword energy slashes at enemy position
+        const spawnSwordEnergySlashes = (enemy, swordAngle, timeScale) => {
+            const slashCount = 4 + Math.floor(Math.random() * 3);
+            for (let i = 0; i < slashCount; i++) {
+                const slash = this.scene.add.graphics();
+                slash.x = enemy.x;
+                slash.y = enemy.y;
 
-        // 繪製虛空斬擊（紫色能量刀光）
-        const timeScale = this.scene.time.timeScale || 1;
-        this.scene.tweens.addCounter({
-            from: 0,
-            to: 1,
-            duration: 400 / timeScale, // 根據遊戲速度調整動畫時長
-            onUpdate: (tween) => {
-                const progress = tween.getValue();
-                slashG.clear();
+                // Direction perpendicular to sword (along swing direction) with deviation
+                const deviation = (Math.random() - 0.5) * 0.6; // ±17 degrees
+                const angle = swordAngle + deviation;
+                const speed = 80 + Math.random() * 60;
+                const baseLength = 35 + Math.random() * 35;
+                const baseWidth = 4 + Math.random() * 3;
 
-                // 斬擊弧度隨時間擴展
-                const currentAngle = angle - slashWidth / 2 + (slashWidth * progress);
-
-                // 多層刀光效果（更粗更明顯）
-                // 外層光暈
-                slashG.lineStyle(35, 0x9900ff, 0.4 * (1 - progress));
-                slashG.beginPath();
-                slashG.arc(0, 0, slashRadius, angle - slashWidth / 2, currentAngle);
-                slashG.strokePath();
-
-                // 中層能量
-                slashG.lineStyle(22, 0xcc00ff, 0.7 * (1 - progress));
-                slashG.beginPath();
-                slashG.arc(0, 0, slashRadius - 15, angle - slashWidth / 2, currentAngle);
-                slashG.strokePath();
-
-                // 內層核心
-                slashG.lineStyle(12, 0xff00ff, 1.0 * (1 - progress));
-                slashG.beginPath();
-                slashG.arc(0, 0, slashRadius - 30, angle - slashWidth / 2, currentAngle);
-                slashG.strokePath();
-
-                // 刀尖粒子效果（更多粒子）
-                if (progress > 0.2) {
-                    for (let i = 0; i < 5; i++) {
-                        const particleAngle = currentAngle + (Math.random() - 0.5) * 0.4;
-                        const particleRadius = slashRadius + Math.random() * 30;
-                        const px = Math.cos(particleAngle) * particleRadius;
-                        const py = Math.sin(particleAngle) * particleRadius;
-
-                        slashG.fillStyle(0xffffff, 0.9 * (1 - progress));
-                        slashG.fillCircle(px, py, 4);
-                    }
+                // Color palette - refined purple/magenta spectrum
+                const colorVariant = Math.random();
+                let coreColor, midColor, outerColor;
+                if (colorVariant < 0.33) {
+                    coreColor = 0xffffff;   // White core
+                    midColor = 0xff00ff;    // Magenta
+                    outerColor = 0xaa00ff;  // Purple
+                } else if (colorVariant < 0.66) {
+                    coreColor = 0xffccff;   // Light pink
+                    midColor = 0xcc00ff;    // Deep magenta
+                    outerColor = 0x8800ff;  // Deep purple
+                } else {
+                    coreColor = 0xccffff;   // Cyan tint
+                    midColor = 0xaa55ff;    // Purple-pink
+                    outerColor = 0x6600cc;  // Dark purple
                 }
 
-                // 斬擊路徑上的能量波紋
-                if (progress > 0.4) {
-                    for (let i = 0; i < 3; i++) {
-                        const waveAngle = angle - slashWidth / 2 + (slashWidth * (progress - 0.2 * i));
-                        const waveRadius = slashRadius - 10;
-                        const wx = Math.cos(waveAngle) * waveRadius;
-                        const wy = Math.sin(waveAngle) * waveRadius;
+                // Draw multi-layer blade with tapered tip
+                // Layer 1: Outer Halo (widest, most transparent)
+                slash.lineStyle(baseWidth * 3, outerColor, 0.15);
+                slash.beginPath();
+                slash.moveTo(0, 0);
+                slash.lineTo(baseLength * 0.9, 0);
+                // Tapered tip
+                slash.lineTo(baseLength, 0);
+                slash.strokePath();
 
-                        slashG.fillStyle(0xaa00ff, 0.5 * (1 - progress));
-                        slashG.fillCircle(wx, wy, 8);
-                    }
+                // Layer 2: Mid Glow
+                slash.lineStyle(baseWidth * 1.8, midColor, 0.4);
+                slash.beginPath();
+                slash.moveTo(0, 0);
+                slash.lineTo(baseLength * 0.95, 0);
+                slash.lineTo(baseLength, 0);
+                slash.strokePath();
+
+                // Layer 3: Core Blade (sharpest, brightest)
+                slash.lineStyle(baseWidth * 0.8, coreColor, 0.9);
+                slash.beginPath();
+                slash.moveTo(0, 0);
+                slash.lineTo(baseLength, 0);
+                slash.strokePath();
+
+                // Add sharp tip accent
+                slash.fillStyle(coreColor, 0.8);
+                slash.fillCircle(baseLength, 0, baseWidth * 0.6);
+
+                slash.setRotation(angle);
+                slash.setBlendMode(Phaser.BlendModes.ADD);
+
+                // Shoot outward and fade (no rotation)
+                const endX = slash.x + Math.cos(angle) * speed;
+                const endY = slash.y + Math.sin(angle) * speed;
+
+                this.scene.tweens.add({
+                    targets: slash,
+                    x: endX,
+                    y: endY,
+                    alpha: 0,
+                    scaleX: 1.3,
+                    scaleY: 0.8, // Slight vertical compression for speed effect
+                    duration: 350 + Math.random() * 150,
+                    ease: 'Cubic.out',
+                    onComplete: () => slash.destroy()
+                });
+            }
+        };
+
+        // --- Helper: Domineering Slash (Crescent + Void Rift) ---
+        // --- Helper: Sprite Slash (Sword + Trails + Flame) ---
+        const performSlash = (direction, delay) => {
+            this.scene.time.delayedCall(delay, () => {
+                if (!player.susanoo) return;
+
+                // 1. Animation
+                player.susanoo.sprite.play('susanoo_att_anim');
+
+                // 2. Setup Sprite
+                const sword = this.scene.add.sprite(0, 0, 'susanoo_sword_clean');
+                if (!sword.texture || sword.texture.key === '__MISSING') {
+                    // Fallback if texture load failed or not clean yet
+                    sword.setTexture('susanoo_sword');
                 }
-            },
-            onComplete: () => {
-                slashG.destroy();
+                sword.setOrigin(0.5, 1.0); // Handle at bottom
+                // Scale to match range approx (assuming sword height is ~length)
+                // If sword height is 0 (not loaded), default to 1
+                const sScale = sword.height > 0 ? range / sword.height : 1;
+                sword.setScale(sScale);
 
-                // 造成傷害
-                targets.forEach(t => {
-                    if (t.active) t.takeDamage(dmg);
+                player.susanoo.container.add(sword);
+                player.susanoo.container.bringToTop(sword);
+
+                // 3. Setup FX Graphics
+                const fxG = this.scene.add.graphics();
+                player.susanoo.container.add(fxG);
+                player.susanoo.container.moveBelow(fxG, sword); // FX behind sword
+                fxG.setBlendMode(Phaser.BlendModes.SCREEN);
+
+                // Motion Params
+                const safeTimeScale = Math.max(0.1, timeScale);
+                const swingDuration = 120 / safeTimeScale; // Fast swing
+                const fadeDuration = 100 / safeTimeScale; // Fast fade
+
+                const sweepArc = Math.PI * 1.0;
+                // Angle Math: 0 is Right. -PI/2 is Up.
+                // Sword points Up by default (Handle bottom).
+                // To point Right (0 rad), rotation must be +PI/2.
+                // So Rotation = Angle + PI/2.
+
+                const startAngle = baseAngle + (sweepArc / 2) * direction;
+                const endAngle = baseAngle - (sweepArc / 2) * direction;
+
+                this.scene.tweens.addCounter({
+                    from: 0,
+                    to: 1,
+                    duration: swingDuration + fadeDuration,
+                    onUpdate: (tween) => {
+                        const totalProgress = tween.getValue();
+                        // 0.8 Swing, 0.2 Fade
+                        const swingProgress = Phaser.Math.Clamp(totalProgress / 0.8, 0, 1);
+
+                        fxG.clear();
+
+                        if (swingProgress < 1) {
+                            const currentAngle = startAngle + (endAngle - startAngle) * swingProgress;
+                            sword.setRotation(currentAngle + Math.PI / 2);
+
+                            // --- EFFECT: GHOST TRAILS (殘影) ---
+                            // Spawn a ghost every other frame effectively by probability
+                            if (Math.random() < 0.6) {
+                                const ghost = this.scene.add.sprite(0, 0, 'susanoo_sword_clean');
+                                ghost.setOrigin(0.5, 1.0);
+                                ghost.setScale(sword.scaleX, sword.scaleY);
+                                ghost.setRotation(sword.rotation);
+                                ghost.setAlpha(0.4);
+                                ghost.setTint(0xaa55ff); // Purple Tint
+                                player.susanoo.container.add(ghost);
+                                player.susanoo.container.moveBelow(ghost, fxG); // Behind FX
+
+                                this.scene.tweens.add({
+                                    targets: ghost,
+                                    alpha: 0,
+                                    duration: 250 / safeTimeScale,
+                                    onComplete: () => ghost.destroy()
+                                });
+                            }
+
+                            // --- EFFECT: PURPLE FLAME (紫焰) ---
+                            // Draw jagged shapes trailing/along the blade
+                            // We can draw a sector from Handle to Tip
+                            const tipX = Math.cos(currentAngle) * range;
+                            const tipY = Math.sin(currentAngle) * range;
+
+                            // Draw chaotic flame spurts
+                            fxG.lineStyle(2, 0xff00ff, 0.5);
+                            fxG.fillStyle(0xaa00cc, 0.5);
+
+                            const flameCnt = 5;
+                            for (let i = 0; i < flameCnt; i++) {
+                                // interpolate along blade
+                                const r = range * (0.3 + 0.7 * Math.random());
+                                const px = Math.cos(currentAngle) * r;
+                                const py = Math.sin(currentAngle) * r;
+
+                                // Flame extends opposite to Swing Direction?
+                                // Actually let's just make it "burn" outward broadly
+                                const burnAng = currentAngle - (direction * 0.2 * Math.random());
+                                const bx = Math.cos(burnAng) * (r + 20);
+                                const by = Math.sin(burnAng) * (r + 20);
+
+                                fxG.beginPath();
+                                fxG.moveTo(px, py);
+                                fxG.lineTo(bx, by);
+                                fxG.lineTo(Math.cos(currentAngle) * (r + 10), Math.sin(currentAngle) * (r + 10));
+                                fxG.closePath();
+                                fxG.fillPath();
+                            }
+                        } else {
+                            // Fade out main sword
+                            const fadeP = (totalProgress - 0.8) / 0.2;
+                            sword.setAlpha(1 - fadeP);
+                        }
+                    },
+                    onComplete: () => {
+                        sword.destroy();
+                        fxG.destroy();
+                    }
                 });
 
-                if (player.susanoo) {
-                    player.susanoo.state = 'IDLE';
-                    player.susanoo.sprite.play('susanoo_move_anim');
-                }
+                // Sweep-based damage & VFX
+                const hitEnemies = new Set();
+                const startTime = Date.now();
+
+                const hitCheckInterval = this.scene.time.addEvent({
+                    delay: 16,
+                    repeat: Math.ceil(swingDuration / 16) + 5,
+                    callback: () => {
+                        const elapsed = Date.now() - startTime;
+                        const swingProgress = Math.min(elapsed / swingDuration, 1);
+                        const currentAngle = startAngle + (endAngle - startAngle) * swingProgress;
+
+                        if (swingProgress >= 1) return;
+
+                        targets.forEach(t => {
+                            if (!t.active || hitEnemies.has(t) || !t.takeDamage) return;
+
+                            const angleToEnemy = Phaser.Math.Angle.Between(player.x, player.y, t.x, t.y);
+                            const dist = Phaser.Math.Distance.Between(player.x, player.y, t.x, t.y);
+
+                            if (dist > range) return;
+
+                            const normalizeAngle = (a) => {
+                                while (a < 0) a += Math.PI * 2;
+                                while (a >= Math.PI * 2) a -= Math.PI * 2;
+                                return a;
+                            };
+
+                            const normStart = normalizeAngle(startAngle);
+                            const normCurrent = normalizeAngle(currentAngle);
+                            const normEnemy = normalizeAngle(angleToEnemy);
+
+                            let isHit = false;
+                            if (direction > 0) {
+                                if (normStart < normCurrent) {
+                                    isHit = normEnemy >= normStart && normEnemy <= normCurrent;
+                                } else {
+                                    isHit = normEnemy >= normStart || normEnemy <= normCurrent;
+                                }
+                            } else {
+                                if (normStart > normCurrent) {
+                                    isHit = normEnemy <= normStart && normEnemy >= normCurrent;
+                                } else {
+                                    isHit = normEnemy <= normStart || normEnemy >= normCurrent;
+                                }
+                            }
+
+                            if (isHit) {
+                                hitEnemies.add(t);
+                                t.takeDamage(dmgPerHit);
+                                spawnSwordEnergySlashes(t, currentAngle, safeTimeScale);
+                            }
+                        });
+                    }
+                });
+            });
+        };
+
+        // --- Execute Two Slashes ---
+        performSlash(1, 0);
+        performSlash(-1, 150 / timeScale);
+
+        // Reset State
+        this.scene.time.delayedCall(600 / timeScale, () => {
+            if (player.susanoo) {
+                player.susanoo.state = 'IDLE';
+                player.susanoo.sprite.play('susanoo_move_anim');
             }
         });
     }

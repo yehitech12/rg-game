@@ -32,7 +32,7 @@ export default class GameScene extends Phaser.Scene {
         this.boxes = null;
 
         this.spawnDelay = 266;
-        this.maxEnemies = 300;
+        this.maxEnemies = 450;
         this.level = 1;
         this.currentXP = 0;
         this.neededXP = 100;
@@ -87,6 +87,8 @@ export default class GameScene extends Phaser.Scene {
         this.load.image('boss_golem', bossGolemImg);
         this.load.image('boss_demon', bossDemonImg);
         this.load.image('chest', chestImg);
+        this.load.image('shield_raw', 'assets/shield.png');
+        this.load.image('susanoo_sword', 'assets/SUS_swort.png');
 
         // Slime animations
         for (let i = 1; i <= 4; i++) {
@@ -601,6 +603,24 @@ export default class GameScene extends Phaser.Scene {
             }
         });
 
+        // Clean Susanoo Sword
+        if (!this.textures.exists('susanoo_sword_clean')) {
+            if (this.textures.exists('susanoo_sword')) {
+                const texture = this.textures.get('susanoo_sword').getSourceImage();
+                const canvas = this.textures.createCanvas('susanoo_sword_clean', texture.width, texture.height);
+                const ctx = canvas.getContext();
+                ctx.drawImage(texture, 0, 0);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                for (let i = 0; i < imageData.data.length; i += 4) {
+                    if (imageData.data[i] > 230 && imageData.data[i + 1] > 230 && imageData.data[i + 2] > 230) {
+                        imageData.data[i + 3] = 0;
+                    }
+                }
+                ctx.putImageData(imageData, 0, 0);
+                canvas.refresh();
+            }
+        }
+
         // Process Robot2 texture for Overload mode
         if (!this.textures.exists('player_robot2')) {
             const robot2Texture = this.textures.get('player_robot2_raw').getSourceImage();
@@ -615,6 +635,30 @@ export default class GameScene extends Phaser.Scene {
             }
             robot2Ctx.putImageData(robot2Data, 0, 0);
             robot2Canvas.refresh();
+        }
+
+        // Process Shield Texture (Add this block)
+        // FORCE RELOAD with new key 'shield_clean_v2'
+        if (!this.textures.exists('shield_clean_v2')) {
+            // Check if raw loaded, if not, might need to rely on what we have or reload
+            // Ideally we rely on loader. But for now we re-process.
+            if (this.textures.exists('shield_raw')) {
+                const shieldTex = this.textures.get('shield_raw').getSourceImage();
+                const sCanvas = this.textures.createCanvas('shield_clean_v2', shieldTex.width, shieldTex.height);
+                const sCtx = sCanvas.getContext();
+                sCtx.drawImage(shieldTex, 0, 0);
+                const sData = sCtx.getImageData(0, 0, sCanvas.width, sCanvas.height);
+                for (let i = 0; i < sData.data.length; i += 4) {
+                    const r = sData.data[i];
+                    const g = sData.data[i + 1];
+                    const b = sData.data[i + 2];
+                    if (r > 230 && g > 230 && b > 230) {
+                        sData.data[i + 3] = 0;
+                    }
+                }
+                sCtx.putImageData(sData, 0, 0);
+                sCanvas.refresh();
+            }
         }
 
         this.cameras.main.startFollow(this.player, true, 0.05, 0.05);
@@ -1249,6 +1293,27 @@ export default class GameScene extends Phaser.Scene {
             } else {
                 this.isLevelingUp = false;
             }
+        });
+    }
+    updateUI() {
+        if (!this.player || !this.weaponSystem) return;
+        const dps = this.weaponSystem.dps || 0;
+        const requiredDPS = (this.level * 10) + (this.gameTimer * 0.5);
+
+        this.events.emit('updateScore', {
+            level: this.level,
+            xp: this.currentXP,
+            neededXP: this.neededXP,
+            hp: Math.max(0, this.player.health),
+            maxHP: this.player.maxHealth,
+            shield: this.player.shield || 0, // Ensure shield is sent
+            kills: this.enemiesKilled,
+            dps: dps,
+            requiredDPS: requiredDPS,
+            stats: this.player.stats,
+            overloadEnergy: this.overloadEnergy,
+            maxOverloadEnergy: this.maxOverloadEnergy,
+            overloadActive: this.overloadActive
         });
     }
 }

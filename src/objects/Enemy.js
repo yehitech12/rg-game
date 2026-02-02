@@ -70,9 +70,9 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.setTexture(config.sprite);
         this.setScale(config.scale || 1);
 
-        // Elite chance (10%)
+        // Elite chance (DISABLED)
         this.isElite = false;
-        if (!this.isBoss && Math.random() < 0.1) {
+        if (!this.isBoss && Math.random() < 0) { // Changed from 0.1 to 0
             this.isElite = true;
             this.setScale(this.scale * 1.5);
             this.health *= 3;
