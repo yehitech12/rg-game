@@ -66,6 +66,9 @@ export default class MenuScene extends Phaser.Scene {
 
         // --- 4. START BUTTON ---
         this.createStartButton(width, height);
+
+        // --- 5. TEST MODE BUTTON ---
+        this.createTestModeButton(width, height);
     }
 
     createParticles(width, height) {
@@ -201,9 +204,46 @@ export default class MenuScene extends Phaser.Scene {
         return false;
     }
 
+    createTestModeButton(width, height) {
+        const btnX = width / 2;
+        const btnY = height * 0.94; // 放在開始按鈕下面
+
+        this.isTestMode = false;
+        const container = this.add.container(btnX, btnY);
+
+        const bg = this.add.graphics();
+        const text = this.add.text(0, 0, 'DEBUG TEST MODE: OFF', {
+            fontSize: '14px',
+            fontFamily: 'Orbitron',
+            fill: '#888888'
+        }).setOrigin(0.5);
+
+        const draw = () => {
+            bg.clear();
+            bg.lineStyle(2, this.isTestMode ? 0xff00ff : 0x333333, 0.8);
+            bg.fillStyle(0x000000, 0.6);
+            bg.strokeRoundedRect(-120, -15, 240, 30, 15);
+            bg.fillRoundedRect(-120, -15, 240, 30, 15);
+            text.setText(`DEBUG TEST MODE: ${this.isTestMode ? 'ON' : 'OFF'}`);
+            text.setFill(this.isTestMode ? '#ff00ff' : '#888888');
+        };
+
+        draw();
+        container.add([bg, text]);
+        bg.setInteractive(new Phaser.Geom.Rectangle(-120, -15, 240, 30), Phaser.Geom.Rectangle.Contains);
+
+        bg.on('pointerdown', () => {
+            this.isTestMode = !this.isTestMode;
+            draw();
+            this.cameras.main.shake(50, 0.002);
+        });
+
+        this.testModeContainer = container;
+    }
+
     createStartButton(width, height) {
         const btnX = width / 2;
-        const btnY = height * 0.85;
+        const btnY = height * 0.82; // 稍微往上移一點點
         const container = this.add.container(btnX, btnY);
 
         const bg = this.add.graphics();
@@ -241,7 +281,8 @@ export default class MenuScene extends Phaser.Scene {
             this.time.delayedCall(500, () => {
                 this.scene.start('GameScene', {
                     level: this.selectedLevel,
-                    difficulty: this.selectedDifficulty
+                    difficulty: this.selectedDifficulty,
+                    isTestMode: this.isTestMode
                 });
                 this.scene.stop('MenuScene');
             });

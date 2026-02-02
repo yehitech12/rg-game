@@ -86,6 +86,7 @@ export default class Bullet extends Phaser.Physics.Arcade.Sprite {
     }
 
     preUpdate(time, delta) {
+        if (this.scene.isGamePaused) return;
         super.preUpdate(time, delta);
 
         if (this.active && this.isShockwave) {

@@ -15,7 +15,8 @@ export const Enemies = {
         damage: 12,
         xp: 25,
         sprite: 'skeleton',
-        scale: 0.45
+        scale: 0.45,
+        faceLeft: true
     },
     'tank': {
         name: '岩石魔像',
@@ -24,7 +25,8 @@ export const Enemies = {
         damage: 35,
         xp: 80,
         sprite: 'rock',
-        scale: 0.7
+        scale: 0.7,
+        faceLeft: true
     },
     'dragon': {
         name: '惡靈騎士團',
@@ -43,7 +45,7 @@ export const Enemies = {
         damage: 40,
         xp: 2000,
         sprite: 'boss_slime',
-        scale: 4.0,
+        scale: 1.6,
         isBoss: true,
         attackType: 'aoe',
         attackRange: 200,
@@ -83,6 +85,7 @@ export const Enemies = {
         sprite: 'dragon',
         scale: 15.0,
         color: 0xff0000,
+        faceLeft: true,
         isBoss: true,
         attackType: 'fire',
         attackCooldown: 3000

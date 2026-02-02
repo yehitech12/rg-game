@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import DebugPanel from '../systems/DebugPanel';
 
 export default class UIScene extends Phaser.Scene {
     constructor() {
@@ -60,6 +61,18 @@ export default class UIScene extends Phaser.Scene {
             fontFamily: 'Arial Black'
         }).setOrigin(0.5).setVisible(false);
 
+        // Kills Info (Relocated to Bottom Right)
+        this.killContainer = this.add.container(width - 20, height - 30);
+        this.killBg = this.add.rectangle(-130, 0, 130, 40, 0x000000, 0.5).setOrigin(0, 0.5).setStrokeStyle(1, 0xff4400, 0.3);
+        this.killLabel = this.add.text(-120, 0, 'KILLS', { fontSize: '14px', fill: '#ff4400', fontStyle: 'bold', fontFamily: 'Arial Black' }).setOrigin(0, 0.5);
+        this.killCountText = this.add.text(-10, 0, '0', {
+            fontSize: '22px',
+            fill: '#ffffff',
+            fontFamily: 'Arial Black'
+        }).setOrigin(1, 0.5);
+        this.killContainer.add([this.killBg, this.killLabel, this.killCountText]);
+        this.lastKills = 0;
+
         // Middle Timer Container
         this.add.rectangle(width / 2, 10, 150, 45, 0x000000, 0.4).setOrigin(0.5, 0).setStrokeStyle(1, 0xffffff, 0.2);
         this.timerText = this.add.text(width / 2, 16, '10:00', {
@@ -83,10 +96,10 @@ export default class UIScene extends Phaser.Scene {
         });
 
         this.statsText = this.add.text(statsBoxX + 15, statsBoxY + 30, '', {
-            fontSize: '15px',
-            fill: '#ffffff', // Changed to white
+            fontSize: '13px', // 降低字體大小修復溢出
+            fill: '#ffffff',
             fontFamily: 'Arial Black',
-            lineSpacing: 10
+            lineSpacing: 8
         });
 
         // Speed Controls - Integrated into the same premium feel
@@ -194,13 +207,29 @@ export default class UIScene extends Phaser.Scene {
 
             const stats = data.stats;
             this.statsText.setText([
-                `💥 DPS : ${Math.floor(data.dps || 0)}`,
-                `🎯 REQ : ${Math.floor(data.requiredDPS || 0)}`,
-                `⚔️ DMG : x${stats.damage.toFixed(2)}`,
-                `⚡ SPD : x${stats.attackSpeed.toFixed(2)}`,
-                `👣 MOV : x${stats.moveSpeed.toFixed(2)}`
+                `💥 DPS: ${Math.floor(data.dps || 0)}`,
+                `🎯 REQ: ${Math.floor(data.requiredDPS || 0)}`,
+                `⚔️ DMG: x${stats.damage.toFixed(2)}`,
+                `⚡ ASP: x${stats.attackSpeed.toFixed(2)}`,
+                `👣 MOV: x${stats.moveSpeed.toFixed(2)}`
             ]);
             this.statsText.setColor('#ffffff');
+
+            // Update Kills with Jump Effect
+            if (this.killCountText && data.kills !== this.lastKills) {
+                this.killCountText.setText(data.kills.toString());
+
+                // 僅讓數字本身微微跳一下的補間動畫
+                this.tweens.add({
+                    targets: this.killCountText,
+                    scale: 1.3,
+                    duration: 80,
+                    yoyo: true,
+                    ease: 'Quad.easeOut'
+                });
+
+                this.lastKills = data.kills;
+            }
         });
 
         // Boss Indicators
@@ -267,6 +296,12 @@ export default class UIScene extends Phaser.Scene {
             this.debugCheck.setVisible(isVisible);
             gameScene.events.emit('toggleDebug', isVisible);
         });
+
+        // --- DEBUG PANEL (TEST MODE ONLY) ---
+        if (gameScene.isTestMode) {
+            this.debugPanel = new DebugPanel(this); // Passing 'this' (UIScene)
+            console.log('Test Mode Active - Press TAB for Debug Panel');
+        }
     }
 
     updateBossBar(hp, max) {

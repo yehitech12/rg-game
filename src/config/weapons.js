@@ -112,7 +112,7 @@ export const Weapons = {
             attackSpeed: 1200,
             count: 3,
             stunDuration: 500,
-            color: 0x00f2fe
+            color: 0x4d00ff
         },
         upgrades: [
             { damage: 12 }, // LV2 (Total 37)
@@ -213,5 +213,25 @@ export const Weapons = {
         name: '強力氣場 (Powerful Aura)',
         type: 'aura',
         baseStats: { damage: 40, range: 300, attackSpeed: 200, color: 0xff00ff }
+    },
+    'Snowfall': {
+        name: '降雪 (Snowfall)',
+        showName: '降雪',
+        type: 'snowfall',
+        description: '召喚暴風雪區域，持續傷害並減速場內敵人。',
+        baseStats: {
+            damage: 15,
+            radius: 200,
+            attackSpeed: 3000, // 召喚頻率
+            duration: 4000,    // 持續時間
+            slowFactor: 0.5,   // 減速至 50%
+            tickRate: 500      // 傷害間隔
+        },
+        upgrades: [
+            { radius: 50, damage: 5 }, // LV2
+            { duration: 1500, slowFactor: -0.1 }, // LV3 (slow to 60%)
+            { radius: 100, damage: 10 }, // LV4
+            { radius: 50, damage: 15, duration: 2000 } // LV5
+        ]
     }
 };

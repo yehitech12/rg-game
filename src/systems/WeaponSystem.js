@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { Enemies } from '../config/enemies';
+import SnowfallArea from '../objects/SnowfallArea';
 
 export default class WeaponSystem {
     constructor(scene) {
@@ -109,6 +110,7 @@ export default class WeaponSystem {
             case 'shotgun': return this.fireShotgun(stats, player);
             case 'beam_cannon': return this.fireHeavyCannon(stats, player);
             case 'susanoo': return this.activateSusanoo(stats, player);
+            case 'snowfall': return this.fireSnowfall(stats, player);
             default: return false;
         }
     }
@@ -237,15 +239,15 @@ export default class WeaponSystem {
         const baseWidth = stats.width || 80;
         const range = stats.range || 700;
         const damage = stats.damage || 30;
-        const startTime = this.scene.time.now;
+        const startTime = this.scene.internalGameTime;
 
         // 根據等級調整寬度：LV1=40%, LV2=60%, LV3=80%, LV4=100%, LV5=120%
         const level = stats.level || 1;
         const widthMultiplier = 0.2 + (level * 0.2); // LV1=0.4, LV2=0.6, LV3=0.8, LV4=1.0, LV5=1.2
         const width = baseWidth * widthMultiplier;
 
-        // Camera shake on fire (強力震動)
-        this.scene.cameras.main.shake(duration, 0.005);
+        // Camera shake on fire (降低震動強度)
+        this.scene.cameras.main.shake(duration, 0.002);
 
         const timerEvent = this.scene.time.addEvent({
             delay: 30, // 30fps update roughly
@@ -264,11 +266,11 @@ export default class WeaponSystem {
                 beamGraphics.translateCanvas(player.x, player.y);
                 beamGraphics.rotateCanvas(angle);
 
-                const pulse = Math.sin(this.scene.time.now / 50) * 5; // Breathing effect
-                const fastPulse = Math.sin(this.scene.time.now / 30) * 3; // Faster pulse
+                const pulse = Math.sin(this.scene.internalGameTime / 50) * 5; // Breathing effect
+                const fastPulse = Math.sin(this.scene.internalGameTime / 30) * 3; // Faster pulse
 
                 // Dynamic Beam Growth: "Shooting out" effect
-                const elapsed = this.scene.time.now - startTime;
+                const elapsed = this.scene.internalGameTime - startTime;
 
                 // Grow to full length in 300ms (Fast and impactful)
                 const growthTime = 300;
@@ -301,148 +303,166 @@ export default class WeaponSystem {
                     beamGraphics.fillPath();
                 };
 
-                // 1. Outer Glow (紅橙色外暈 - 雙層)
-                drawTaperedBeam(width + 60 + pulse * 4, 0xff1100, 0.2);
-                drawTaperedBeam(width + 50 + pulse * 3, 0xff3300, 0.3);
+                // --- 高溫輻射光束渲染 (25層熱核色調版) ---
+                const layers = 25;
+                const innerWidth = width * 1.0;
 
-                // 2. Secondary Glow (橙色 - 帶快速脈衝)
-                drawTaperedBeam(width + 30 + fastPulse, 0xff6600, 0.5);
+                for (let i = layers; i > 0; i--) {
+                    const ratio = i / layers;
+                    const lWidth = innerWidth * Math.pow(ratio, 1.5) * 1.25;
+                    const alpha = (1 - ratio) * 0.18;
 
-                // 3. Main Beam (亮橙色)
-                drawTaperedBeam(width, 0xff9900, 0.9);
-
-                // 4. Inner Core (黃白色核心)
-                drawTaperedBeam(width / 2.5, 0xffee00, 1);
-
-                // 5. Brightest Core (純白 - 帶脈衝)
-                drawTaperedBeam(width / 5 + fastPulse * 0.5, 0xffffff, 1);
-
-                // 6. Spiral Energy Lines (螺旋能量線 - 三條)
-                const segments = Math.floor(currentRange / 25);
-                const step = currentRange / (segments || 1);
-                const spiralSpeed = this.scene.time.now / 100;
-
-                if (segments > 0) {
-                    // 紅色螺旋（最外層）
-                    beamGraphics.lineStyle(4, 0xff0000, 0.8);
-                    beamGraphics.beginPath();
-                    beamGraphics.moveTo(0, 0);
-                    for (let i = 1; i <= segments; i++) {
-                        const lx = i * step;
-                        const scale = lx < taperLength ? (lx / taperLength) : 1;
-                        const spiralOffset = Math.sin(i * 0.5 + spiralSpeed) * (width / 3) * scale;
-                        beamGraphics.lineTo(lx, spiralOffset);
+                    let hexColor;
+                    if (ratio > 0.85) { // 最外層：深紅/暗紅 (高熱殘餘)
+                        const subRatio = (ratio - 0.85) / 0.15;
+                        hexColor = Phaser.Display.Color.GetColor(
+                            Phaser.Math.Interpolation.Linear([150, 255], subRatio),
+                            0,
+                            0
+                        );
+                    } else if (ratio > 0.45) { // 中層：烈焰紅 -> 熔岩橘
+                        const subRatio = (ratio - 0.45) / 0.4;
+                        hexColor = Phaser.Display.Color.GetColor(
+                            255,
+                            Phaser.Math.Interpolation.Linear([0, 140], subRatio),
+                            0
+                        );
+                    } else if (ratio > 0.15) { // 內層：熔岩橘 -> 亮黃
+                        const subRatio = (ratio - 0.15) / 0.3;
+                        hexColor = Phaser.Display.Color.GetColor(
+                            255,
+                            Phaser.Math.Interpolation.Linear([140, 230], subRatio),
+                            Phaser.Math.Interpolation.Linear([0, 50], subRatio)
+                        );
+                    } else { // 接近核心：白熱化黃
+                        hexColor = 0xfffdcc;
                     }
-                    beamGraphics.strokePath();
-
-                    // 黃色螺旋（反向）
-                    beamGraphics.lineStyle(3, 0xffff00, 0.9);
-                    beamGraphics.beginPath();
-                    beamGraphics.moveTo(0, 0);
-                    for (let i = 1; i <= segments; i++) {
-                        const lx = i * step;
-                        const scale = lx < taperLength ? (lx / taperLength) : 1;
-                        const spiralOffset = Math.sin(i * 0.5 - spiralSpeed) * (width / 4) * scale;
-                        beamGraphics.lineTo(lx, spiralOffset);
-                    }
-                    beamGraphics.strokePath();
-
-                    // 白色螺旋（核心，快速旋轉）
-                    beamGraphics.lineStyle(2, 0xffffff, 1);
-                    beamGraphics.beginPath();
-                    beamGraphics.moveTo(0, 0);
-                    for (let i = 1; i <= segments; i++) {
-                        const lx = i * step;
-                        const scale = lx < taperLength ? (lx / taperLength) : 1;
-                        const spiralOffset = Math.sin(i * 0.7 + spiralSpeed * 2) * (width / 6) * scale;
-                        beamGraphics.lineTo(lx, spiralOffset);
-                    }
-                    beamGraphics.strokePath();
+                    drawTaperedBeam(lWidth + pulse, hexColor, alpha);
                 }
 
-                // 7. Edge Lightning (光束邊緣閃電)
-                if (segments > 0 && Math.random() > 0.5) {
-                    beamGraphics.lineStyle(2, 0xffff00, 0.7);
-                    beamGraphics.beginPath();
-                    const startY = (Math.random() > 0.5 ? 1 : -1) * width / 2;
-                    beamGraphics.moveTo(taperLength, startY);
+                // --- 核心內部漸變 (25層全白極致平滑過渡) ---
+                const coreLayers = 25;
+                const coreMaxJitter = Math.random() * 6 - 3;
+                for (let i = coreLayers; i > 0; i--) {
+                    const ratio = i / coreLayers;
+                    const cWidth = (width / 1.8) * Math.pow(ratio, 1.4);
+                    const alpha = (1 - ratio) * 0.35;
+                    drawTaperedBeam(cWidth + coreMaxJitter * ratio, 0xffffff, alpha);
+                }
+                // 最中心極細線，確保視覺衝擊力
+                drawTaperedBeam(width / 12, 0xffffff, 1);
 
-                    for (let i = 1; i <= Math.min(segments, 8); i++) {
-                        const lx = taperLength + (i * step);
-                        const ly = startY + Phaser.Math.FloatBetween(-15, 15);
-                        beamGraphics.lineTo(lx, ly);
-                    }
-                    beamGraphics.strokePath();
+                // --- 分形熱能電弧 (Fractal Heat Arcs) ---
+                // 減少主解析度但增加細節抖動，使其更像真實物理折射
+                const boltResolution = Math.floor(currentRange / 20);
+                const boltStep = currentRange / (boltResolution || 1);
+
+                if (boltResolution > 0) {
+                    const drawFractalBolt = (color, alpha, thickness, complexity, spread) => {
+                        const flicker = Math.random() * 0.4 + 0.6; // 高頻閃爍
+                        beamGraphics.lineStyle(thickness, color, alpha * flicker);
+                        beamGraphics.beginPath();
+                        beamGraphics.moveTo(0, 0);
+
+                        let curX = 0;
+                        let curY = 0;
+
+                        for (let i = 1; i <= boltResolution; i++) {
+                            const targetX = i * boltStep;
+                            const taper = targetX < taperLength ? (targetX / taperLength) : 1;
+
+                            // 分形抖動：結合大波段與高頻小抖動 (修改為相減，使波動向外噴射)
+                            const largeWave = Math.sin(i * 0.4 - this.scene.internalGameTime / 60) * (width * 0.4);
+                            const tinyJitter = (Math.random() - 0.5) * complexity;
+                            const nextY = (largeWave + tinyJitter) * taper * spread;
+
+                            beamGraphics.lineTo(targetX, nextY);
+
+                            // 隨機分支 (Branching)
+                            if (Math.random() > 0.92 && i > 2) {
+                                const branchX = targetX;
+                                const branchY = nextY;
+                                beamGraphics.moveTo(branchX, branchY);
+                                beamGraphics.lineTo(branchX + Math.random() * 30, branchY + (Math.random() - 0.5) * 40);
+                                beamGraphics.moveTo(branchX, branchY); // 回到主路徑
+                            }
+
+                            curX = targetX;
+                            curY = nextY;
+                        }
+                        beamGraphics.strokePath();
+
+                        // 同步渲染一層半透明暈影，增加厚度感
+                        beamGraphics.lineStyle(thickness * 3, color, alpha * 0.3 * flicker);
+                        beamGraphics.strokePath();
+                    };
+
+                    // 1. 底層深紅高熱暈影
+                    drawFractalBolt(0xff3300, 0.4, 3, 25, 1.2);
+                    // 2. 中層熾熱橘弧
+                    drawFractalBolt(0xff9900, 0.6, 1.5, 15, 1.0);
+                    // 3. 核心白熱化絲線
+                    drawFractalBolt(0xfffdb0, 0.8, 0.8, 8, 0.8);
                 }
 
                 beamGraphics.restore();
 
-                // 8. Beam Tip Explosion (光束尾端爆炸效果)
-                if (currentRange > 100 && Math.random() > 0.7) {
-                    const tipX = player.x + Math.cos(angle) * currentRange;
-                    const tipY = player.y + Math.sin(angle) * currentRange;
+                // 8. 強化密集粒子能量流 (增加數量、隨機色彩與噴射感)
+                if (currentRange > 50) {
+                    for (let p = 0; p < 8; p++) {
+                        const distPercent = Math.random();
+                        const dist = distPercent * currentRange;
+                        const px = player.x + Math.cos(angle) * dist;
+                        const py = player.y + Math.sin(angle) * dist;
 
-                    const explosion = this.scene.add.circle(tipX, tipY,
-                        Phaser.Math.Between(width / 2, width),
-                        Phaser.Math.RND.pick([0xff0000, 0xff6600, 0xff9900]));
-                    explosion.setBlendMode(Phaser.BlendModes.ADD);
-                    explosion.setAlpha(0.8);
+                        const sideOffset = (Math.random() - 0.5) * (width * 1.2);
+                        const finalX = px + Math.cos(angle + Math.PI / 2) * sideOffset;
+                        const finalY = py + Math.sin(angle + Math.PI / 2) * sideOffset;
 
-                    this.scene.tweens.add({
-                        targets: explosion,
-                        scaleX: 2,
-                        scaleY: 2,
-                        alpha: 0,
-                        duration: 200,
-                        onComplete: () => explosion.destroy()
-                    });
+                        const pColor = Phaser.Math.RND.pick([0xffffff, 0xffaa00, 0xff00ff, 0xff4400, 0x00ffff]);
+                        const particle = this.scene.add.rectangle(finalX, finalY, Phaser.Math.Between(2, 4), Phaser.Math.Between(2, 4), pColor);
+                        particle.setAlpha(0.9);
+                        particle.setBlendMode(Phaser.BlendModes.ADD);
+                        particle.setRotation(Math.random() * Math.PI);
+
+                        this.scene.tweens.add({
+                            targets: particle,
+                            x: finalX + Math.cos(angle) * Phaser.Math.Between(200, 400),
+                            y: finalY + Math.sin(angle) * Phaser.Math.Between(200, 400),
+                            angle: 180,
+                            alpha: 0,
+                            scale: 0.5,
+                            duration: Phaser.Math.Between(300, 700),
+                            onComplete: () => particle.destroy()
+                        });
+                    }
                 }
 
-                // 9. Energy Pulse Rings (能量脈衝波紋 - 增加頻率)
-                if (Math.random() > 0.5 && currentRange > 100) {
-                    const dist = Phaser.Math.Between(50, currentRange - 50);
-                    const px = player.x + Math.cos(angle) * dist;
-                    const py = player.y + Math.sin(angle) * dist;
+                // 9. (Energy Pulse Rings 已移除 - 使用者要求移除)
 
-                    const ring = this.scene.add.graphics();
-                    ring.lineStyle(4, 0xff6600, 1);
-                    ring.strokeCircle(px, py, width / 2);
-                    ring.setBlendMode(Phaser.BlendModes.ADD);
-
-                    this.scene.tweens.add({
-                        targets: ring,
-                        scaleX: 2.5,
-                        scaleY: 2.5,
-                        alpha: 0,
-                        duration: 400,
-                        onComplete: () => ring.destroy()
-                    });
-                }
-
-                // 10. Explosive Particles (爆炸粒子 - 增加數量和變化)
-                if (Math.random() > 0.3 && currentRange > 50) {
-                    for (let p = 0; p < 2; p++) {
+                // 10. Explosive Particles (沿線微型爆炸 - 強化規模)
+                if (Math.random() > 0.4 && currentRange > 50) {
+                    for (let p = 0; p < 3; p++) {
                         const dist = Phaser.Math.Between(0, currentRange);
                         const px = player.x + Math.cos(angle) * dist;
                         const py = player.y + Math.sin(angle) * dist;
 
-                        // 隨機偏移
-                        const offsetAngle = Phaser.Math.FloatBetween(-Math.PI / 3, Math.PI / 3);
-                        const offsetDist = Phaser.Math.FloatBetween(0, width / 2);
+                        const offsetAngle = Phaser.Math.FloatBetween(-Math.PI / 2, Math.PI / 2);
+                        const offsetDist = Phaser.Math.FloatBetween(0, width * 0.7);
                         const finalX = px + Math.cos(angle + offsetAngle) * offsetDist;
                         const finalY = py + Math.sin(angle + offsetAngle) * offsetDist;
 
-                        const particle = this.scene.add.circle(finalX, finalY, Phaser.Math.Between(3, 10),
-                            Phaser.Math.RND.pick([0xff0000, 0xff3300, 0xff6600, 0xff9900, 0xffff00]));
+                        const particle = this.scene.add.circle(finalX, finalY, Phaser.Math.Between(5, 15),
+                            Phaser.Math.RND.pick([0xffffff, 0xff0000, 0xffaa00, 0xff00ff]));
                         particle.setBlendMode(Phaser.BlendModes.ADD);
 
                         this.scene.tweens.add({
                             targets: particle,
-                            x: finalX + Phaser.Math.FloatBetween(-20, 20),
-                            y: finalY + Phaser.Math.FloatBetween(-20, 20),
+                            x: finalX + Phaser.Math.FloatBetween(-40, 40),
+                            y: finalY + Phaser.Math.FloatBetween(-40, 40),
                             scale: 0,
                             alpha: 0,
-                            duration: Phaser.Math.Between(300, 500),
+                            duration: Phaser.Math.Between(400, 600),
                             onComplete: () => particle.destroy()
                         });
                     }
@@ -472,7 +492,7 @@ export default class WeaponSystem {
             repeat: Math.floor(duration / tickRate) - 1,
             callback: () => {
                 // Check collisions (Dynamic range check)
-                const activeTime = this.scene.time.now - startTime;
+                const activeTime = this.scene.internalGameTime - startTime;
                 const currentDmgRange = range * Math.min(activeTime / 300, 1);
 
                 const currentTargets = [...this.scene.enemies.getChildren(), ...this.scene.boxes.getChildren()];
@@ -492,8 +512,9 @@ export default class WeaponSystem {
                         e.takeDamage(damage);
                         hitAny = true;
 
-                        // Impact visual
-                        const impact = this.scene.add.circle(e.x, e.y, 25, 0x00ffff, 0.6);
+                        // Impact visual (Heat themed)
+                        const impactColor = Phaser.Math.RND.pick([0xff0000, 0xffaa00, 0xffff00]);
+                        const impact = this.scene.add.circle(e.x, e.y, 25, impactColor, 0.6);
                         this.scene.tweens.add({
                             targets: impact,
                             alpha: 0,
@@ -503,6 +524,19 @@ export default class WeaponSystem {
                         });
                     }
                 });
+
+                // Debug Hitbox Visualization (強制並優化顯示)
+                if (this.scene.physics.world.drawDebug || (this.scene.game.config.physics && this.scene.game.config.physics.arcade.debug)) {
+                    const debugRect = this.scene.add.graphics().setDepth(1000000); // 極高深度
+                    debugRect.lineStyle(4, 0xffff00, 1); // 超粗黃線
+                    debugRect.setPosition(player.x, player.y);
+                    debugRect.setRotation(angle);
+                    debugRect.strokeRect(0, -width / 1.3, currentDmgRange, (width / 1.3) * 2);
+
+                    this.scene.time.delayedCall(tickRate - 2, () => {
+                        if (debugRect && debugRect.active) debugRect.destroy();
+                    });
+                }
 
                 if (hitAny) {
                     this.scene.cameras.main.shake(150, 0.003);
@@ -672,20 +706,22 @@ export default class WeaponSystem {
             if (chainIndex >= chainCount || !currentTarget || !currentTarget.active) return;
 
             hitTargets.add(currentTarget);
-            this.drawLightning(prevSource, currentTarget, stats.color || 0x00f2fe);
+            const level = stats.level || 1;
+            this.drawLightning(prevSource, currentTarget, stats.color || 0x4d00ff, level);
 
             if (currentTarget.takeDamage) currentTarget.takeDamage(stats.damage);
             if (currentTarget.stun) currentTarget.stun(stats.stunDuration || 500);
 
             prevSource = currentTarget;
             let nextTarget = null;
-            let minDist = 300;
+            // 彈跳距離隨等級提升：基礎 300，每級加 50
+            let searchRadius = 300 + (level * 50);
 
             targets.forEach(e => {
                 if (e.active && !hitTargets.has(e)) {
                     const d = Phaser.Math.Distance.Between(prevSource.x, prevSource.y, e.x, e.y);
-                    if (d < minDist) {
-                        minDist = d;
+                    if (d < searchRadius) {
+                        searchRadius = d;
                         nextTarget = e;
                     }
                 }
@@ -697,14 +733,14 @@ export default class WeaponSystem {
         };
 
         chainNext();
-        this.scene.cameras.main.shake(100, 0.005);
+        // Removed camera shake
         return true;
     }
 
-    drawLightning(source, target, color) {
+    drawLightning(source, target, color, level = 1) {
         const graphics = this.scene.add.graphics();
-        graphics.lineStyle(2, color, 1);
         graphics.setBlendMode(Phaser.BlendModes.ADD);
+        graphics.setDepth(100);
 
         const x1 = source.x;
         const y1 = source.y;
@@ -714,29 +750,108 @@ export default class WeaponSystem {
         const dist = Phaser.Math.Distance.Between(x1, y1, x2, y2);
         const steps = Math.max(3, Math.floor(dist / 20));
 
-        graphics.beginPath();
-        graphics.moveTo(x1, y1);
-        for (let i = 1; i < steps; i++) {
-            const t = i / steps;
-            const px = x1 + (x2 - x1) * t + Phaser.Math.Between(-15, 15);
-            const py = y1 + (y2 - y1) * t + Phaser.Math.Between(-15, 15);
-            graphics.lineTo(px, py);
+        // 根據等級決定是否疊加金色
+        const isHighLevel = level >= 3;
+        const isYellowLevel = level >= 4;
+        const isMaxLevel = level >= 5;
+
+        const drawBolt = (g, startX, startY, endX, endY, thickness, alpha, offsetRange, boltColor) => {
+            g.lineStyle(thickness, boltColor || color, alpha);
+            g.beginPath();
+            g.moveTo(startX, startY);
+            for (let i = 1; i < steps; i++) {
+                const t = i / steps;
+                const px = startX + (endX - startX) * t + Phaser.Math.Between(-offsetRange, offsetRange);
+                const py = startY + (endY - startY) * t + Phaser.Math.Between(-offsetRange, offsetRange);
+                g.lineTo(px, py);
+
+                // 高階分支閃電 (Branching)
+                if (isHighLevel && Math.random() > 0.85 && i < steps - 1) {
+                    const bx = px + Phaser.Math.Between(-30, 30);
+                    const by = py + Phaser.Math.Between(-30, 30);
+                    g.strokePath(); // 結束主線段
+                    g.lineStyle(thickness * 0.5, boltColor || color, alpha * 0.7);
+                    g.beginPath();
+                    g.moveTo(px, py);
+                    g.lineTo(bx, by);
+                    g.strokePath();
+                    g.lineStyle(thickness, boltColor || color, alpha); // 回到主線段樣式
+                    g.beginPath();
+                    g.moveTo(px, py);
+                }
+            }
+            g.lineTo(endX, endY);
+            g.strokePath();
+        };
+
+        // 1. 外層光暈 (Glow) - 使用原始藍色
+        const glowWidth = 4 + (level * 2);
+        drawBolt(graphics, x1, y1, x2, y2, glowWidth, 0.3, 20, color);
+
+        // 2. 次級光束 (Secondary)
+        if (level >= 2) {
+            drawBolt(graphics, x1, y1, x2, y2, glowWidth * 0.5, 0.6, 12, color);
         }
-        graphics.lineTo(x2, y2);
-        graphics.strokePath();
+
+        // 核心光束 (Core)
+        const coreWidth = 1 + (level * 0.5);
+        drawBolt(graphics, x1, y1, x2, y2, coreWidth, 1, 8, 0xffffff);
+
+        // 4. 新增：高階金黃螢光閃電 (LV4+ 獨立疊加)
+        if (isYellowLevel) {
+            const goldColor = 0xffd700;
+            drawBolt(graphics, x1, y1, x2, y2, coreWidth * 0.8, 0.9, 25, goldColor);
+
+            // 隨機金色螢光微粒 (更亮的點綴)
+            if (Math.random() > 0.4) {
+                for (let i = 0; i < 6; i++) {
+                    const tx = Phaser.Math.Interpolation.Linear([x1, x2], Math.random());
+                    const ty = Phaser.Math.Interpolation.Linear([y1, y2], Math.random());
+                    const p = this.scene.add.circle(tx, ty, 2, goldColor);
+                    p.setBlendMode(Phaser.BlendModes.ADD);
+                    this.scene.tweens.add({
+                        targets: p,
+                        x: tx + Phaser.Math.Between(-40, 40),
+                        y: ty + Phaser.Math.Between(-40, 40),
+                        alpha: 0,
+                        scale: 2.5,
+                        duration: 500,
+                        onComplete: () => p.destroy()
+                    });
+                }
+            }
+        }
+
+        // 高階額外效果：擊中地面或目標的微型火花海
+        if (isMaxLevel) {
+            for (let i = 0; i < 8; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const len = Math.random() * 50;
+                const spx = x2 + Math.cos(angle) * len;
+                const spy = y2 + Math.sin(angle) * len;
+                graphics.lineStyle(1, isYellowLevel ? 0xffea00 : 0xffffff, 0.8);
+                graphics.beginPath();
+                graphics.moveTo(x2, y2);
+                graphics.lineTo(spx, spy);
+                graphics.strokePath();
+            }
+        }
+        // Removed camera shake from both branches
 
         this.scene.tweens.add({
             targets: graphics,
             alpha: 0,
-            duration: 250,
+            duration: 200 + (level * 20),
             onComplete: () => graphics.destroy()
         });
 
-        // Spark effect
-        const spark = this.scene.add.circle(target.x, target.y, 4, 0xffffff);
+        // Spark effect (Hit point)
+        const sparkSize = 4 + level;
+        const spark = this.scene.add.circle(x2, y2, sparkSize, 0xffffff);
+        spark.setBlendMode(Phaser.BlendModes.ADD);
         this.scene.tweens.add({
             targets: spark,
-            scale: 2,
+            scale: 2 + (level * 0.2),
             alpha: 0,
             duration: 300,
             onComplete: () => spark.destroy()
@@ -765,8 +880,8 @@ export default class WeaponSystem {
 
             if (susanoo.state !== 'IDLE') return true;
 
-            // Cooldown check for ACTIONS only (使用遊戲時間，與動畫同步)
-            const now = this.scene.time.now;
+            // Cooldown check for ACTIONS only (使用 internalGameTime)
+            const now = this.scene.internalGameTime;
             if (susanoo.nextActionTime && now < susanoo.nextActionTime) return true;
 
             const targets = [...this.scene.enemies.getChildren(), ...this.scene.boxes.getChildren()].filter(t => t.active);
@@ -805,16 +920,35 @@ export default class WeaponSystem {
                 }
                 return true;
             }
-        } catch (err) {
-            console.error("Susanoo Logic Error:", err);
-            // Disable Susanoo temporarily to prevent loop
-            player.susanoo = null;
+
+            return true;
+        } catch (e) {
+            console.error("Susanoo Error:", e);
+            return false;
         }
+    }
+
+    fireSnowfall(stats, player) {
+        const targets = [...this.scene.enemies.getChildren(), ...this.scene.boxes.getChildren()].filter(t => t.active);
+        const target = this.getClosestTargetInRange(targets, 500); // 尋找 500 距離內的最近敵人
+
+        let spawnX, spawnY;
+        if (target) {
+            spawnX = target.x;
+            spawnY = target.y;
+        } else {
+            // 如果附近沒敵人，在玩家原地召喚
+            spawnX = player.x;
+            spawnY = player.y;
+        }
+
+        new SnowfallArea(this.scene, spawnX, spawnY, stats);
+
+        // 視覺震動增加打擊感
+        this.scene.cameras.main.shake(200, 0.002);
 
         return true;
     }
-
-
 
     initSusanooVisuals(player, level = 1) {
         if (player.susanoo) return;
@@ -843,6 +977,7 @@ export default class WeaponSystem {
 
         // 3. CRITICAL: Update Loop for Position Sync
         const updateListener = () => {
+            if (this.scene.isGamePaused) return; // 暫停時跳過更新
             if (!player.active || !container.scene) {
                 this.scene.events.off('update', updateListener);
                 if (container.active) container.destroy();
@@ -854,7 +989,7 @@ export default class WeaponSystem {
 
                 // Idle Animation (subtle breathing)
                 if (player.susanoo && player.susanoo.state === 'IDLE') {
-                    const breath = Math.sin(this.scene.time.now / 400) * 0.03;
+                    const breath = Math.sin(this.scene.internalGameTime / 400) * 0.03;
                     const currentScale = player.susanoo.baseScale || 0.6;
                     container.scaleX = 1.0 + breath;
                     container.scaleY = 1.0 + breath;
@@ -1104,9 +1239,8 @@ export default class WeaponSystem {
         const slashWidth = Math.PI * 0.8; // 弧度寬度增加到144度
 
         // 繪製虛空斬擊（紫色能量刀光）
-        let slashAlpha = 0;
         const timeScale = this.scene.time.timeScale || 1;
-        const slashTween = this.scene.tweens.addCounter({
+        this.scene.tweens.addCounter({
             from: 0,
             to: 1,
             duration: 400 / timeScale, // 根據遊戲速度調整動畫時長

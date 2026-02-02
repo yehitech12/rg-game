@@ -29,6 +29,7 @@ export default class ExpGem extends Phaser.Physics.Arcade.Sprite {
     }
 
     preUpdate(time, delta) {
+        if (this.scene.isGamePaused) return;
         super.preUpdate(time, delta);
         if (!this.active) return;
 

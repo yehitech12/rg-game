@@ -32,9 +32,23 @@ export default class Player extends Phaser.Physics.Arcade.Sprite {
             moveSpeed: 1,
             pickupRange: 1
         };
+
+        // 監聽場景暫停事件
+        scene.events.on('pause', () => {
+            if (this.active && this.anims && this.anims.isPlaying) {
+                this.anims.pause();
+            }
+        });
+        scene.events.on('resume', () => {
+            if (this.active && this.anims && this.anims.isPaused) {
+                this.anims.resume();
+            }
+        });
     }
 
     update() {
+        if (this.scene.isGamePaused) return; // 暫停時停止錄入輸入與邏輯更新，但不清空速度
+
         const pointer = this.scene.input.activePointer;
         if (!pointer) return;
 

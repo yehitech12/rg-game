@@ -7,10 +7,11 @@ import Box from '../objects/Box';
 import WeaponSystem from '../systems/WeaponSystem';
 import { Weapons } from '../config/weapons';
 import { Enemies } from '../config/enemies';
+import DebugPanel from '../systems/DebugPanel';
 
 // Assets served from /public/assets/
 const playerImg = 'assets/robot.png';
-const bgImg = 'assets/BG_Main.jpg';
+const bgImg = 'assets/BG4-2.png';
 const enemyImg = 'assets/enemy.png';
 const bulletImg = 'assets/bullet.png';
 const xpGemImg = 'assets/xp_gem.png';
@@ -30,8 +31,8 @@ export default class GameScene extends Phaser.Scene {
         this.xpGems = null;
         this.boxes = null;
 
-        this.spawnDelay = 800;
-        this.maxEnemies = 100;
+        this.spawnDelay = 266;
+        this.maxEnemies = 300;
         this.level = 1;
         this.currentXP = 0;
         this.neededXP = 100;
@@ -54,8 +55,8 @@ export default class GameScene extends Phaser.Scene {
         this.selectedLevel = data.level || 1;
 
         // Reset all states for restart
-        this.spawnDelay = 800;
-        this.maxEnemies = 100;
+        this.spawnDelay = 266;
+        this.maxEnemies = 300;
         this.level = 1;
         this.currentXP = 0;
         this.neededXP = 100;
@@ -66,6 +67,8 @@ export default class GameScene extends Phaser.Scene {
         this.enemiesKilled = 0;
         this.isFinalBossSpawned = false;
         this.isVictoryPending = false;
+        this.isTestMode = data.isTestMode || false;
+        this.internalGameTime = 0; // 新增：內部遊戲時間計數器
     }
 
     preload() {
@@ -135,6 +138,9 @@ export default class GameScene extends Phaser.Scene {
         this.load.image('susanoo_att_2', 'assets/SUS_att2.png');
         this.load.image('susanoo_def_1', 'assets/SUS_def1.png');
         this.load.image('susanoo_def_2', 'assets/SUS_def2.png');
+
+        // Snowfall Magic Assets
+        this.load.image('snow_magic', 'assets/snow_magic.png');
     }
 
     create() {
@@ -621,6 +627,9 @@ export default class GameScene extends Phaser.Scene {
         this.weaponSystem = new WeaponSystem(this);
         this.weaponSystem.addWeapon('Susanoo', Weapons['Susanoo']);
 
+        // --- DEBUG PANEL STATE ---
+        this.isGamePaused = false;
+
         // Create fire texture
         if (!this.textures.exists('fire')) {
             const fireGraphics = this.make.graphics({ x: 0, y: 0, add: false });
@@ -650,6 +659,36 @@ export default class GameScene extends Phaser.Scene {
             }
         });
 
+        // 監聽暫停/恢復事件，確保特效、動畫與 Tweens 同步暫停
+        this.events.on('pause', () => {
+            this.isGamePaused = true;
+            this.physics.world.pause(); // 暫停物理模擬（保留速度數據）
+            this.time.paused = true;     // 暫停時鐘（TimerEvents）
+            this.tweens.pauseAll();      // 暫停所有補間動畫（包含粒子運動）
+            this.anims.pauseAll();       // 暫停所有 Sprite 動畫（解決原地踏步）
+
+            // 暫停所有粒子發射器 (如 SnowfallArea)
+            this.children.each(child => {
+                if (child.type === 'ParticleEmitterManager' || child.type === 'ParticleEmitter') {
+                    child.pause();
+                }
+            });
+        });
+        this.events.on('resume', () => {
+            this.isGamePaused = false;
+            this.physics.world.resume(); // 恢復物理模擬
+            this.time.paused = false;     // 恢復時鐘
+            this.tweens.resumeAll();      // 恢復補間動畫
+            this.anims.resumeAll();      // 恢復 Sprite 動畫
+
+            // 恢復粒子發射器
+            this.children.each(child => {
+                if (child.type === 'ParticleEmitterManager' || child.type === 'ParticleEmitter') {
+                    child.resume();
+                }
+            });
+        });
+
         this.events.off('setSpeed');
         this.events.on('setSpeed', (multiplier) => {
             this.time.timeScale = multiplier;
@@ -673,6 +712,8 @@ export default class GameScene extends Phaser.Scene {
     }
 
     update(time, delta) {
+        if (this.isGamePaused) return; // 暫停時停止所有邏輯
+
         if (this.player) {
             this.player.update();
 
@@ -683,9 +724,10 @@ export default class GameScene extends Phaser.Scene {
                 this.background.tilePositionY = this.cameras.main.scrollY;
             }
 
-            // Update weapon system to fire bullets
+            // Update weapon system using internal timer to prevent rapid fire after pause
             if (this.weaponSystem) {
-                this.weaponSystem.update(time, this.player);
+                this.internalGameTime += delta;
+                this.weaponSystem.update(this.internalGameTime, this.player);
             }
 
             if (this.overloadActive) {
@@ -743,7 +785,8 @@ export default class GameScene extends Phaser.Scene {
             overloadActive: this.overloadActive,
             stats: this.player.stats,
             dps: this.weaponSystem.getDPS(),
-            requiredDPS: this.weaponSystem.getRequiredDPS()
+            requiredDPS: this.weaponSystem.getRequiredDPS(),
+            kills: this.enemiesKilled
         });
     }
 
@@ -840,9 +883,6 @@ export default class GameScene extends Phaser.Scene {
             }
 
             bullet.hit();
-
-            const text = this.add.text(enemy.x, enemy.y - 20, Math.floor(bullet.damage), { fontSize: '16px', fill: '#fff' }).setOrigin(0.5);
-            this.tweens.add({ targets: text, y: enemy.y - 50, alpha: 0, duration: 500, onComplete: () => text.destroy() });
         }
     }
 
@@ -1062,6 +1102,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     gameOver(isVictory) {
+        this.events.emit('pause');
         this.scene.pause();
         const ui = this.scene.get('UIScene');
         ui.showSummary({
@@ -1187,6 +1228,7 @@ export default class GameScene extends Phaser.Scene {
         });
 
         const ui = this.scene.get('UIScene');
+        this.events.emit('pause'); // 觸發全域暫停（包含 Tweens 與動畫）
         ui.showLevelUp(options, (choice) => {
             this.level++;
             this.levelUpPending--;
@@ -1200,6 +1242,7 @@ export default class GameScene extends Phaser.Scene {
                     this.weaponSystem.addWeapon(choice.key, Weapons[choice.key]);
                 }
             }
+            this.events.emit('resume'); // 恢復全域運作
             this.scene.resume('GameScene');
             if (this.levelUpPending > 0) {
                 this.time.delayedCall(100, () => this.triggerLevelUp());

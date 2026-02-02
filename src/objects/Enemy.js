@@ -19,6 +19,18 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.slowFactor = 1.0;
         this.slowUntil = 0;
         this.stunGraphics = scene.add.graphics();
+
+        // 監聽場景暫停事件
+        scene.events.on('pause', () => {
+            if (this.active && this.anims && this.anims.isPlaying) {
+                this.anims.pause();
+            }
+        });
+        scene.events.on('resume', () => {
+            if (this.active && this.anims && this.anims.isPaused) {
+                this.anims.resume();
+            }
+        });
     }
 
     setTarget(target) {
@@ -27,6 +39,7 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     spawn(x, y, config) {
         this.body.reset(x, y);
+        this.body.enable = true; // 確保重啟物理體
         this.setActive(true);
         this.setVisible(true);
 
@@ -43,6 +56,7 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
         this.nextAttack = 0;
         this.configColor = config.color;
         this.isMegaBoss = config.isMegaBoss || false;
+        this.faceLeft = config.faceLeft || false; // 預設為看右 (false)
 
         // Reset Debuffs
         this.burnStacks = 0;
@@ -108,6 +122,26 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
     takeDamage(amount, isDot = false) {
         this.health -= amount;
 
+        // 生成浮動傷害文字
+        const dmgValue = Math.floor(amount);
+        if (dmgValue > 0) {
+            const dmgText = this.scene.add.text(this.x + Phaser.Math.Between(-10, 10), this.y - 20, dmgValue, {
+                fontSize: isDot ? '12px' : '16px',
+                fontFamily: 'Orbitron',
+                fill: isDot ? '#ffaa00' : '#ffffff',
+                stroke: '#000000',
+                strokeThickness: 2
+            }).setOrigin(0.5);
+
+            this.scene.tweens.add({
+                targets: dmgText,
+                y: this.y - 60,
+                alpha: 0,
+                duration: 600,
+                onComplete: () => dmgText.destroy()
+            });
+        }
+
         if (this.isBoss) {
             this.scene.events.emit('updateBossHP', this.health, this.maxHealth);
         }
@@ -128,10 +162,25 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
 
     die() {
+        if (this.isDying) return; // 防止重覆觸發死亡邏輯
+
         if (this.isBoss) {
             this.scene.events.emit('bossDied');
         }
+
+        // 立即清除所有控場狀態與特效
+        this.isStunned = false;
+        this.stunUntil = 0;
+        this.slowUntil = 0;
+        this.burnStacks = 0;
         this.stunGraphics.clear();
+        this.clearTint();
+
+        // 立即關閉物理體，防止死亡動畫期間還被子彈打到或碰撞
+        if (this.body) {
+            this.body.enable = false;
+        }
+
         this.isDying = true; // 標記正在死亡
         this.body.setVelocity(0); // 立即停止移動
 
@@ -170,7 +219,7 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
 
     finishDeath() {
-        this.isDying = false;
+        this.isDying = false; // 重置死亡標記
         this.setActive(false);
         this.setVisible(false);
         if (this.scene.enemyDied) {
@@ -179,22 +228,25 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
     }
 
     preUpdate(time, delta) {
+        if (this.scene.isGamePaused) return;
         super.preUpdate(time, delta);
         if (!this.active || !this.target || this.isDying) {
             if (this.isDying) this.body.setVelocity(0); // 確保死亡時速度為 0
             return;
         }
 
+        const gameTime = this.scene.internalGameTime;
+
         // Stun Logic
         if (this.isStunned) {
-            if (time > this.stunUntil) {
+            if (gameTime > this.stunUntil) {
                 this.isStunned = false;
                 this.stunGraphics.clear();
                 this.clearTint();
                 if (this.isElite) this.setTint(0xffff00);
             } else {
                 this.body.setVelocity(0);
-                this.updateStunGraphics(time);
+                this.updateStunGraphics(gameTime);
                 return;
             }
         } else {
@@ -204,28 +256,34 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
         // Apply movement with speed multipliers (stun, slow, etc.)
         let currentSpeed = this.speed;
         if (this.isStunned) currentSpeed = 0;
-        else if (time < this.slowUntil) currentSpeed *= this.slowFactor;
+        else if (gameTime < this.slowUntil) currentSpeed *= this.slowFactor;
 
         // Boss Attack Logic
-        if (this.isBoss && time > this.nextAttack) {
+        if (this.isBoss && gameTime > this.nextAttack) {
             const dist = Phaser.Math.Distance.Between(this.x, this.y, this.target.x, this.target.y);
             if (dist < 400) {
-                this.performAttack(time);
+                this.performAttack(gameTime);
             }
         }
 
         this.scene.physics.moveToObject(this, this.target, currentSpeed);
-        this.setFlipX(this.target.x >= this.x);
+
+        // 根據素材原始方向調整翻轉邏輯
+        if (this.faceLeft) {
+            this.setFlipX(this.target.x > this.x);
+        } else {
+            this.setFlipX(this.target.x < this.x);
+        }
 
         // Burn Debuff Logic
         if (this.burnStacks > 0) {
-            if (time > this.nextBurnTick) {
+            if (gameTime > this.nextBurnTick) {
                 const burnDamage = this.burnStacks * 5;
                 this.takeDamage(burnDamage, true);
-                this.nextBurnTick = time + 1000;
+                this.nextBurnTick = gameTime + 1000;
             }
 
-            if (time > this.burnResetTime) {
+            if (gameTime > this.burnResetTime) {
                 this.burnStacks = 0;
                 this.clearTint();
                 if (this.isElite) this.setTint(0xffff00);
@@ -236,14 +294,14 @@ export default class Enemy extends Phaser.Physics.Arcade.Sprite {
 
     stun(duration) {
         this.isStunned = true;
-        this.stunUntil = this.scene.time.now + duration;
+        this.stunUntil = this.scene.internalGameTime + duration;
         this.setTint(0x00ffff); // Cyan for stun
         this.body.setVelocity(0);
     }
 
     slow(factor, duration) {
         this.slowFactor = factor;
-        this.slowUntil = this.scene.time.now + duration;
+        this.slowUntil = this.scene.internalGameTime + duration;
         if (!this.isStunned) this.setTint(0x0088ff); // Deep blue for slow
     }
 
